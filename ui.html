@@ -1,0 +1,85 @@
+<section id="login" class="screen">
+  <div class="login-box">
+    <h1 class="brand">XtreamTV</h1>
+    <p class="lead">Sağlayıcının verdiği sunucu adresi ve hesap bilgilerini gir.</p>
+    <label>Sunucu adresi<input id="in-server" class="f" type="url" placeholder="http://ornek-sunucu.com:8080" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <label>Kullanıcı adı<input id="in-user" class="f" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <label>Şifre<input id="in-pass" class="f" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <button id="btn-showpass" class="f btn small">Şifreyi göster</button>
+    <button id="btn-login" class="f btn primary">Bağlan</button>
+    <p id="login-msg" class="msg" role="alert"></p>
+  </div>
+</section>
+
+<section id="main" class="screen hidden">
+  <nav id="rail" data-zone="rail">
+    <div class="brand small">XtreamTV</div>
+    <button class="f rail-item" data-section="live">Canlı TV</button>
+    <button class="f rail-item" data-section="vod">Filmler</button>
+    <button class="f rail-item" data-section="series">Diziler</button>
+    <button class="f rail-item" data-section="settings">Ayarlar</button>
+  </nav>
+
+  <aside id="cats">
+    <h2 id="cats-title">Kategoriler</h2>
+    <div id="cat-list" data-zone="cats"></div>
+  </aside>
+
+  <div id="content">
+    <header class="content-head">
+      <h2><span id="content-title"></span> <span id="content-count"></span></h2>
+      <div id="filters" data-zone="search">
+        <button id="btn-min" class="f chip"></button>
+        <button id="btn-sort" class="f chip"></button>
+      </div>
+      <input id="search" class="f" type="search" placeholder="Bu listede ara" data-zone="search">
+    </header>
+    <div id="items" data-zone="items"></div>
+    <div id="settings" class="hidden" data-zone="settings"></div>
+  </div>
+
+  <footer id="hints">
+    <span><b class="key">OK</b>Aç</span>
+    <span><b class="key red"></b>Favori (F)</span>
+    <span><b class="key">Geri</b>Geri dön</span>
+  </footer>
+</section>
+
+<section id="player" class="screen hidden">
+  <video id="video" playsinline></video>
+  <div id="spinner" class="hidden"></div>
+  <div id="osd">
+    <div id="osd-title"></div>
+    <div id="osd-sub"></div>
+    <div id="osd-epg"></div>
+    <div id="osd-progress" class="hidden">
+      <div class="bar"><i id="osd-bar"></i></div>
+      <div id="osd-time"></div>
+    </div>
+    <div id="pbar" data-zone="pbar"></div>
+    <div id="osd-hint"></div>
+  </div>
+  <div id="subs" class="hidden" data-size="m"></div>
+
+  <div id="guide" class="hidden">
+    <div id="g-tabs" data-zone="gtabs">
+      <button class="f gtab" data-sec="live">Canlı TV</button>
+      <button class="f gtab" data-sec="vod">Filmler</button>
+      <button class="f gtab" data-sec="series">Diziler</button>
+    </div>
+    <div class="g-cols">
+      <div id="g-cats" data-zone="gcats"></div>
+      <div id="g-items" data-zone="gitems"></div>
+    </div>
+    <div id="g-info"></div>
+    <div class="g-hint">OK: aç     Kırmızı: favori     Geri: kapat</div>
+  </div>
+
+  <div id="pmenu" class="hidden">
+    <h3 id="pmenu-title"></h3>
+    <div id="pmenu-list" data-zone="pmenu"></div>
+    <p id="pmenu-note"></p>
+  </div>
+</section>
+
+<div id="toast"></div>
