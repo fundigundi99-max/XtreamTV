@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>XtreamTV YouTube</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #p { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<!-- XtreamTV çoklu ekranındaki YouTube oynatıcısı.
+     GitHub Pages üzerinden açıldığı için YouTube geçerli bir site adresi görür. -->
+<div id="p"></div>
+<script>
+(function () {
+  var q = {};
+  location.search.replace(/^\?/, '').split('&').forEach(function (kv) {
+    var i = kv.indexOf('=');
+    if (i > 0) q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+  });
+  var muted = q.mute !== '0', player = null;
+
+  function send(type, data) {
+    try { parent.postMessage({ xtv: 'yt', type: type, data: data, id: q.id }, '*'); } catch (e) {}
+  }
+
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player('p', {
+      width: '100%', height: '100%', videoId: q.v,
+      host: 'https://www.youtube-nocookie.com',
+      playerVars: { autoplay: 1, mute: muted ? 1 : 0, playsinline: 1, controls: 0, rel: 0, iv_load_policy: 3, fs: 0, disablekb: 1, modestbranding: 1 },
+      events: {
+        onReady: function (e) { if (muted) e.target.mute(); else e.target.unMute(); e.target.playVideo(); send('ready'); },
+        onError: function (e) { send('error', e.data); }
+      }
+    });
+  };
+
+  window.addEventListener('message', function (e) {
+    var m = e.data || {};
+    if (!player || !m.cmd) return;
+    try {
+      if (m.cmd === 'mute') player.mute();
+      if (m.cmd === 'unmute') { player.unMute(); player.setVolume(100); player.playVideo(); }
+    } catch (err) {}
+  });
+
+  var s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>

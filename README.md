@@ -19,6 +19,8 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 - Listeler paneli açıkken yayın sağ üstte küçük pencerede devam eder
 - Çoklu ekran: aynı anda 2 ya da 4 canlı kanal (sağlayıcının bağlantı sınırına ve TV'ye bağlı)
 - Arama tüm kategorilerde yapılır; Magic Remote ile kaydırınca listenin tamamı yüklenir
+- Film ve dizilerde bilgi sayfası: konu, oyuncular, yönetmen, tür, yıl, süre; listenin üstünde odaktaki içeriğin vitrini
+- Çoklu ekranda YouTube: arama, hazır Türk ve Alman haber kanallarının canlı yayınları, kendi listen
 
 ## İzlerken kumanda
 
@@ -36,6 +38,16 @@ Panelde kırmızı tuş favoriye ekler. Altyazı menüsünde "Zamanlama" ve "Yaz
 Canlı yayında sol / sağ ile alt çubuğu aç, **Çoklu ekran → 2 ekran** ya da **4 ekran** seç. Yön tuşlarıyla ekranlar arasında geçilir; sesi yalnızca seçili (sarı çerçeveli) ekran verir. OK ile o ekrana kanal seçilir, CH + / − kanal değiştirir, Geri seçili kanalla tek ekrana döner.
 
 Her ekran ayrı bir yayın bağlantısıdır. Sağlayıcı hesabın aynı anda kaç bağlantıya izin veriyorsa (Ayarlar → Hesap → Bağlantı) en fazla o kadar ekran açılır. TV'nin aynı anda kaç videoyu çözebildiği de sınırdır.
+
+## YouTube (çoklu ekranda)
+
+YouTube yayınları IPTV bağlantısı kullanmaz; bir ekranda IPTV kanalı, diğerlerinde YouTube açık olabilir. Çoklu ekranda bir ekrana OK ile panel açılınca **YouTube** sekmesi görünür: **Ara**, **Listem**, **Türk haber kanalları**, **Alman haber kanalları**. Kırmızı tuş (F) seçili öğeyi Listem'e ekler.
+
+Gerekenler:
+1. **YouTube Data API anahtarı:** console.cloud.google.com → yeni proje → "YouTube Data API v3"ü etkinleştir → Kimlik bilgileri → API anahtarı oluştur. Anahtarı Ayarlar → YouTube bölümüne yaz. Ücretsiz günlük kota yaklaşık 100 aramaya yeter; hazır kanallardan birini açmak da bir arama sayılır.
+2. **GitHub Pages açık olmalı:** YouTube oynatıcısı depodaki `yt.html` sayfası üzerinden açılır (YouTube, uygulamanın içinden doğrudan açılan oynatıcıyı çoğu zaman reddediyor). Depoda Settings → Pages → Branch: `main`, klasör `/ (root)` → Save.
+
+Bazı video sahipleri videolarının başka uygulamalarda oynatılmasına izin vermez; o ekranda bunu söyleyen bir yazı çıkar.
 
 ## Ses ve altyazı
 
