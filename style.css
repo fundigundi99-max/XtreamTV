@@ -255,12 +255,25 @@ input:focus { border-color: var(--focus); box-shadow: 0 0 0 0.15rem var(--focus)
 video::cue { font-size: 2rem; background: rgba(0, 0, 0, 0.55); }
 
 /* ---------- Oynatıcı: listeler paneli ---------- */
-#player.guide-open #osd { opacity: 0; }
+/* Panel açıkken video sağ üstte küçük pencerede oynamaya devam eder */
+#player.guide-open { background: var(--rail); }
+#player.guide-open #video {
+  position: absolute; top: 2rem; right: 2rem;
+  width: 33vw; height: 18.5625vw; background: #000; border-radius: 0.4rem;
+}
+#player.guide-open #osd {
+  left: auto; right: 2rem; bottom: auto; top: calc(2rem + 18.5625vw + 1.2rem);
+  width: 33vw; padding: 0; background: none; opacity: 1;
+}
+#player.guide-open #osd-title { font-size: 1.6rem; }
+#player.guide-open #osd-sub, #player.guide-open #osd-epg { font-size: 1.05rem; }
+#player.guide-open #pbar, #player.guide-open #osd-hint, #player.guide-open #subs { display: none; }
+#player.guide-open #spinner { top: calc(2rem + 9.28vw); left: auto; right: calc(2rem + 16.5vw - 2rem); }
 #guide {
-  position: absolute; top: 0; left: 0; bottom: 0; width: 64%;
+  position: absolute; top: 0; left: 0; bottom: 0; width: calc(100% - 33vw - 4rem);
   display: flex; flex-direction: column;
   padding: 2rem 2rem 1.2rem 2.4rem;
-  background: rgba(8, 16, 27, 0.95); border-right: 1px solid var(--line);
+  background: var(--ink); border-right: 1px solid var(--line);
 }
 #g-tabs { flex-shrink: 0; margin-bottom: 1.2rem; }
 .gtab {
@@ -330,3 +343,42 @@ video::cue { font-size: 2rem; background: rgba(0, 0, 0, 0.55); }
 .pref-row { display: flex; align-items: center; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .pref-label { width: 10rem; flex-shrink: 0; color: var(--muted); font-size: 1.05rem; }
 .os-inputs input { max-width: 24rem; margin-bottom: 0.8rem; }
+
+/* ---------- Çoklu ekran ---------- */
+#multi { display: none; }
+#player.multi #video, #player.multi #osd, #player.multi #subs, #player.multi #spinner { display: none; }
+#player.multi #multi {
+  display: flex; flex-wrap: wrap; align-content: center;
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000;
+}
+#player.multi.guide-open #multi {
+  top: 2rem; right: 2rem; left: auto; bottom: auto; width: 33vw; height: 18.5625vw; border-radius: 0.4rem; overflow: hidden;
+}
+#player.multi.guide-open #multi.n2 .tile { height: 100%; }
+#player.multi.guide-open .multi-hint, #player.multi.guide-open .tile-label { display: none; }
+.tile { position: relative; background: #05080D; box-shadow: inset 0 0 0 1px #111; }
+#multi.n2 .tile { width: 50%; height: 28.125vw; }
+#multi.n4 .tile { width: 50%; height: 50%; }
+.tile video { width: 100%; height: 100%; display: block; background: #000; }
+.tile.active::after {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  border: 0.3rem solid var(--focus); pointer-events: none;
+}
+.tile-empty {
+  position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%);
+  text-align: center; color: var(--muted); font-size: 1.2rem; padding: 0 2rem;
+}
+.tile.has .tile-empty { display: none; }
+.tile.err .tile-empty { display: block; color: #FF9A9A; }
+.tile-label {
+  position: absolute; left: 0.8rem; bottom: 0.7rem; max-width: 80%;
+  padding: 0.25rem 0.7rem; border-radius: 0.3rem; background: rgba(0, 0, 0, 0.7);
+  font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile-label:empty { display: none; }
+.tile.active .tile-label::before { content: "🔊 "; }
+.multi-hint {
+  position: absolute; left: 0; right: 0; bottom: 0.6rem; text-align: center;
+  font-size: 0.9rem; color: #8FA0B6; white-space: pre; pointer-events: none;
+}
+#multi.n4 .multi-hint { display: none; }

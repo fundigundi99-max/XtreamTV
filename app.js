@@ -2,7 +2,7 @@
  * Eski TV tarayıcıları için ES5 ile yazıldı (Tizen 3+, webOS 3+). */
 (function () {
   'use strict';
-  var APP_VERSION = '1.2.0';
+  var APP_VERSION = '1.3.0';
 
   function $(s) { return document.querySelector(s); }
   function enc(s) { return encodeURIComponent(s); }
@@ -35,7 +35,8 @@
     zoneFocus: {},
     play: null,
     returnFocus: null,
-    minRating: store.get('minRating', 0),
+    minRating: 0,
+    searchAll: null,
     sort: store.get('sort', 'default'),
     omdbKey: store.get('omdbKey', ''),
     imdb: store.get('imdb', {}),
@@ -61,11 +62,11 @@
   var BATCH = 120;
 
   /* ---------------- Ağ ---------------- */
-  function getJSON(url) {
+  function getJSON(url, timeout) {
     return new Promise(function (resolve, reject) {
       var x = new XMLHttpRequest();
       x.open('GET', url, true);
-      x.timeout = 30000;
+      x.timeout = timeout || 30000;
       x.onload = function () {
         if (x.status >= 200 && x.status < 300) {
           try { resolve(JSON.parse(x.responseText)); }
@@ -75,7 +76,7 @@
         }
       };
       x.onerror = function () { reject(new Error('Sunucuya ulaşılamadı. Adresi, portu ve internet bağlantısını kontrol et.')); };
-      x.ontimeout = function () { reject(new Error('Sunucu 30 saniye içinde yanıt vermedi.')); };
+      x.ontimeout = function () { reject(new Error('Sunucu ' + Math.round((timeout || 30000) / 1000) + ' saniye içinde yanıt vermedi. Tekrar dene ya da bir kategori seç.')); };
       x.send();
     });
   }
@@ -84,7 +85,8 @@
     var u = S.acc.server + '/player_api.php?username=' + enc(S.acc.user) + '&password=' + enc(S.acc.pass);
     if (action) u += '&action=' + action;
     if (params) for (var k in params) u += '&' + k + '=' + enc(params[k]);
-    return getJSON(u);
+    // Film ve dizi listeleri binlerce kayıt içerebilir; bunlara daha uzun süre tanı
+    return getJSON(u, /^get_(vod_streams|series|live_streams)$/.test(action || '') ? 90000 : 30000);
   }
 
   function normServer(s) {
@@ -395,7 +397,6 @@
   }
   $('#btn-min').addEventListener('click', function () {
     S.minRating = MIN_STEPS[(MIN_STEPS.indexOf(S.minRating) + 1) % MIN_STEPS.length];
-    store.set('minRating', S.minRating);
     updateFilterButtons(); applyFilter();
   });
   $('#btn-sort').addEventListener('click', function () {
@@ -404,11 +405,20 @@
     updateFilterButtons(); applyFilter();
   });
 
+  function normText(t) {
+    return String(t || '').toLocaleLowerCase('tr').replace(/[.:_\-|()\[\]]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
   function applyFilter() {
-    var q = $('#search').value.trim().toLocaleLowerCase('tr');
+    var q = normText($('#search').value);
     var sec = S.section, rated = filtersVisible();
-    var list = !q ? S.base.slice() : S.base.filter(function (it) {
-      return String(it.name || '').toLocaleLowerCase('tr').indexOf(q) >= 0;
+    // Arama, seçili kategoriyle sınırlı kalmasın: tüm bölüm içinde ara
+    var source = q && S.searchAll && S.searchAll.sec === sec ? S.searchAll.list : S.base;
+    var words = q ? q.split(' ') : [];
+    var list = !q ? source.slice() : source.filter(function (it) {
+      var n = normText(it.name);
+      for (var w = 0; w < words.length; w++) if (n.indexOf(words[w]) < 0) return false;
+      return true;
     });
     if (rated && S.minRating > 0) {
       list = list.filter(function (it) { return ratingOf(sec, it).v >= S.minRating; });
@@ -419,11 +429,15 @@
     S.list = list;
     S.rendered = 0;
     $('#items').innerHTML = '';
-    var total = S.base.length;
+    var total = source.length;
+    if (!S.seriesView) {
+      var catBtn = $('#cat-list .cat.active');
+      $('#content-title').textContent = q ? '“' + $('#search').value.trim() + '” araması' : (catBtn ? catBtn.textContent : TITLES[sec]);
+    }
     $('#content-count').textContent = !list.length ? '' : list.length === total ? total : list.length + ' / ' + total;
     if (!S.list.length) {
       $('#items').innerHTML = '<p class="empty">' + (
-        q ? '“' + esc(q) + '” ile eşleşen içerik yok.' :
+        q ? '“' + esc(q) + '” ile eşleşen içerik yok' + (rated && S.minRating > 0 ? ' (puan filtresi açık)' : '') + '.' :
         rated && S.minRating > 0 && total ? S.minRating + ' ve üzeri puanlı içerik yok. Yukarıdaki puan filtresini düşür.' :
         S.catId === 'fav' ? 'Henüz favori yok. Bir içeriğin üzerindeyken kumandadaki kırmızı tuşa (klavyede F) bas.' :
         'Bu kategoride içerik yok.') + '</p>';
@@ -435,7 +449,15 @@
   var searchTimer;
   $('#search').addEventListener('input', function () {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(applyFilter, 300);
+    searchTimer = setTimeout(function () {
+      var sec = S.section;
+      if (!$('#search').value.trim() || sec === 'settings') { applyFilter(); return; }
+      if (S.searchAll && S.searchAll.sec === sec) { applyFilter(); return; }
+      loadList(sec, '*').then(function (all) {
+        S.searchAll = { sec: sec, list: Array.isArray(all) ? all : [] };
+        if (S.section === sec) applyFilter();
+      }).catch(function () { applyFilter(); });
+    }, 300);
   });
 
   function itemHtml(sec, it, i) {
@@ -464,6 +486,12 @@
     var i = +el.getAttribute('data-i');
     if (i > S.rendered - 20 && S.rendered < S.list.length) renderMore();
     queueImdb(i);
+  });
+
+  $('#items').addEventListener('scroll', function () {
+    var el = this;
+    if (S.seriesView || S.rendered >= S.list.length) return;
+    if (el.scrollTop + el.clientHeight > el.scrollHeight - 800) renderMore();
   });
 
   $('#rail').addEventListener('click', function (e) {
@@ -763,7 +791,7 @@
       S.imdb = {}; store.set('imdb', S.imdb); renderSettings(); focusEl($('#btn-imdb-clear'));
       toast('Kayıtlı IMDb puanları silindi.');
     } else if (b.id === 'btn-refresh') {
-      S.cache = {}; toast('Listeler bir sonraki açılışta sunucudan yeniden alınacak.');
+      S.cache = {}; S.searchAll = null; toast('Listeler bir sonraki açılışta sunucudan yeniden alınacak.');
     } else if (b.id === 'btn-logout') {
       store.set('acc', null); S.acc = null; S.cache = {}; S.info = null;
       $('#in-pass').value = '';
@@ -833,7 +861,7 @@
     }
     $('#osd-progress').classList.toggle('hidden', p.type === 'live');
     $('#osd-hint').textContent = p.type === 'live'
-      ? 'OK: kanal listesi     Yukarı / aşağı: kanal değiştir     Sol / sağ: ses ve altyazı     Geri: çık'
+      ? 'OK: kanal listesi     Yukarı / aşağı: kanal değiştir     Sol / sağ: ses, altyazı, çoklu ekran     Geri: çık'
       : 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: listeler, ses ve altyazı     Geri: çık';
     $('#osd-bar').style.width = '0';
     $('#osd-time').textContent = '';
@@ -950,6 +978,7 @@
   }
 
   function closePlayer() {
+    if (M.on) stopMulti(false);
     savePos(true);
     stopVideo();
     clearSub();
@@ -974,7 +1003,9 @@
   /* ---------------- Alt çubuk ve katmanlar ---------------- */
   function renderBar() {
     var live = S.play && S.play.type === 'live';
-    $('#pbar').innerHTML = [['guide', live ? 'Kanal listesi' : 'Listeler'], ['audio', 'Ses'], ['subs', 'Altyazı']].map(function (b) {
+    var btns = [['guide', live ? 'Kanal listesi' : 'Listeler'], ['audio', 'Ses'], ['subs', 'Altyazı']];
+    if (live) btns.push(['multi', 'Çoklu ekran']);
+    $('#pbar').innerHTML = btns.map(function (b) {
       return '<button class="f pbtn" data-act="' + b[0] + '">' + b[1] + '</button>';
     }).join('');
   }
@@ -982,7 +1013,7 @@
     var b = e.target.closest('.pbtn');
     if (!b || !S.play) return;
     var a = P.barBtn = b.getAttribute('data-act');
-    if (a === 'guide') openGuide(); else if (a === 'audio') openAudioMenu(); else openSubsMenu();
+    if (a === 'guide') openGuide(); else if (a === 'audio') openAudioMenu(); else if (a === 'multi') openMultiMenu(); else openSubsMenu();
   });
 
   function openBar() {
@@ -1464,6 +1495,7 @@
     $('#pmenu').classList.add('hidden');
     $('#guide').classList.remove('hidden');
     $('#player').classList.add('guide-open');
+    showOsd();
     guideSection(t === 'live' ? 'live' : t === 'vod' ? 'vod' : 'series', 'playing');
   }
 
@@ -1581,9 +1613,21 @@
       closeAll(); switchPlayback(eps, i, 'episode', ctx);
       return;
     }
-    if (G.sec === 'series') { guideOpenSeries(G.list[i], i); return; }
+    if (G.sec === 'series') {
+      if (M.on) { toast('Çoklu ekranda yalnızca canlı kanallar açılabilir. Önce Geri ile tek ekrana dön.'); return; }
+      guideOpenSeries(G.list[i], i); return;
+    }
     var list = G.list, type = G.sec === 'live' ? 'live' : 'vod';
+    if (M.on) {
+      if (type !== 'live') { toast('Çoklu ekranda yalnızca canlı kanallar açılabilir. Önce Geri ile tek ekrana dön.'); return; }
+      closeAll(); tilePlay(M.tiles[M.active], list, i);
+      return;
+    }
     closeAll(); switchPlayback(list, i, type);
+  });
+  $('#g-items').addEventListener('scroll', function () {
+    if (G.series || G.rendered >= G.list.length) return;
+    if (this.scrollTop + this.clientHeight > this.scrollHeight - 600) guideRender();
   });
   $('#g-items').addEventListener('focusin', function (e) {
     var b = e.target.closest && e.target.closest('.grow');
@@ -1621,6 +1665,139 @@
     else { arr.push(id); toast(it.name + ' favorilere eklendi'); }
     el.classList.toggle('fav', k < 0);
     store.set('favs', S.favs);
+  }
+
+  /* ---------------- Çoklu ekran (aynı anda 2 ya da 4 kanal) ----------------
+   * Her ekran ayrı bir bağlantı açar. Sağlayıcının izin verdiği bağlantı sayısı
+   * ve TV'nin aynı anda çözebildiği video sayısı sınırı belirler. */
+  var M = { on: false, n: 0, tiles: [], active: 0 };
+
+  function maxConnections() { var u = (S.info && S.info.user_info) || {}; return +u.max_connections || 0; }
+
+  function openMultiMenu() {
+    var mc = maxConnections();
+    var note = 'Her ekran ayrı bir yayın bağlantısı kullanır. ' +
+      (mc ? 'Hesabın aynı anda ' + mc + ' bağlantıya izin veriyor' + (mc < 2 ? '; ikinci ekran büyük ihtimalle açılmaz, sağlayıcından bağlantı sayısını artırmasını istemen gerekir.' : '.') : '') +
+      ' TV de aynı anda çözebileceği video sayısıyla sınırlıdır.';
+    openMenu('Çoklu ekran', [
+      { label: '2 ekran', sub: 'Yan yana', act: function () { closeAll(); startMulti(2); } },
+      { label: '4 ekran', sub: '2 × 2', act: function () { closeAll(); startMulti(4); } }
+    ], note);
+  }
+
+  function tileHtml(i) {
+    return '<div class="tile" data-i="' + i + '"><video playsinline></video>' +
+      '<div class="tile-empty">Kanal seçmek için OK</div><div class="tile-label"></div></div>';
+  }
+
+  function startMulti(n) {
+    if (!S.play || S.play.type !== 'live') { toast('Çoklu ekran yalnızca canlı yayında kullanılabilir.'); return; }
+    var first = { list: S.play.list, idx: S.play.idx };
+    stopVideo(); clearSub();
+    M.on = true; M.n = n; M.active = 0; M.tiles = [];
+    var box = $('#multi');
+    box.className = 'n' + n;
+    var html = '';
+    for (var i = 0; i < n; i++) html += tileHtml(i);
+    box.innerHTML = html + '<div class="multi-hint">Yön tuşları: ekran seç     OK: kanal seç     CH + / −: kanal değiştir     Geri: tek ekran</div>';
+    var els = box.querySelectorAll('.tile');
+    for (var j = 0; j < n; j++) M.tiles.push({ el: els[j], video: els[j].querySelector('video'), hls: null, list: null, idx: -1 });
+    $('#player').classList.add('multi');
+    tilePlay(M.tiles[0], first.list, first.idx);
+    setActiveTile(n > 1 ? 1 : 0);
+    var mc = maxConnections();
+    if (mc && mc < n) toast('Hesabın aynı anda ' + mc + ' bağlantıya izin veriyor; bazı ekranlar açılmayabilir.');
+    // Boş ekran için kanal seçimini hemen aç
+    if (M.tiles[M.active].idx < 0) openGuide();
+  }
+
+  function tileStop(t) {
+    if (t.hls) { try { t.hls.destroy(); } catch (e) {} t.hls = null; }
+    try { t.video.pause(); } catch (e) {}
+    t.video.removeAttribute('src');
+    try { t.video.load(); } catch (e) {}
+  }
+
+  function tilePlay(t, list, idx) {
+    var it = list[idx];
+    if (!it) return;
+    tileStop(t);
+    t.list = list; t.idx = idx;
+    var url = streamUrl('live', it);
+    var isHls = /\.m3u8$/.test(url), nativeHls = !!t.video.canPlayType('application/vnd.apple.mpegurl');
+    if (isHls && !nativeHls && window.Hls && Hls.isSupported()) {
+      t.hls = new Hls({ enableWorker: true, maxBufferLength: 20 });
+      t.hls.loadSource(url); t.hls.attachMedia(t.video);
+    } else {
+      t.video.src = url;
+    }
+    t.video.muted = M.tiles.indexOf(t) !== M.active;
+    t.el.classList.add('has');
+    t.el.classList.remove('err');
+    t.el.querySelector('.tile-label').textContent = (it.num ? it.num + '  ' : '') + it.name;
+    t.video.onerror = function () { t.el.classList.add('err'); t.el.querySelector('.tile-empty').textContent = 'Açılamadı. Bağlantı sınırı ya da TV sınırı olabilir.'; };
+    var pr = t.video.play();
+    if (pr && pr.catch) pr.catch(noop);
+    if (M.tiles.indexOf(t) === M.active) syncPlayToTile();
+  }
+
+  // Panel ve kanal değiştirme etkin ekranın kanalına göre çalışsın
+  function syncPlayToTile() {
+    var t = M.tiles[M.active];
+    S.play = t && t.idx >= 0 ? { list: t.list, idx: t.idx, type: 'live' } : { list: [{}], idx: 0, type: 'live' };
+  }
+
+  function setActiveTile(i) {
+    M.active = i;
+    M.tiles.forEach(function (t, j) {
+      t.el.classList.toggle('active', j === i);
+      t.video.muted = j !== i;
+    });
+    syncPlayToTile();
+  }
+
+  function multiMove(dir) {
+    var cols = 2, i = M.active, n = M.n;
+    if (dir === 'left' && i % cols > 0) i--;
+    else if (dir === 'right' && i % cols < cols - 1 && i + 1 < n) i++;
+    else if (dir === 'up' && i - cols >= 0) i -= cols;
+    else if (dir === 'down' && i + cols < n) i += cols;
+    setActiveTile(i);
+  }
+
+  function multiZap(d) {
+    var t = M.tiles[M.active];
+    if (!t || t.idx < 0) return;
+    var n = t.list.length;
+    tilePlay(t, t.list, (t.idx + d + n) % n);
+  }
+
+  // Çoklu ekrandan çık: etkin ekrandaki kanal tam ekranda devam eder
+  function stopMulti(keepActive) {
+    var t = M.tiles[M.active], keep = keepActive && t && t.idx >= 0 ? { list: t.list, idx: t.idx } : null;
+    M.tiles.forEach(tileStop);
+    M.on = false; M.tiles = []; M.n = 0;
+    $('#multi').innerHTML = '';
+    $('#player').classList.remove('multi');
+    if (keep) { S.play = { list: keep.list, idx: keep.idx, type: 'live' }; loadCurrent(); }
+  }
+
+  $('#multi').addEventListener('click', function (e) {
+    var t = e.target.closest('.tile');
+    if (!t || !M.on) return;
+    var i = +t.getAttribute('data-i');
+    if (i === M.active) openGuide(); else setActiveTile(i);
+  });
+
+  function multiKey(e, k) {
+    var dir = { 37: 'left', 38: 'up', 39: 'right', 40: 'down' }[k];
+    e.preventDefault();
+    if (isBackKey(k, false)) { stopMulti(true); return; }
+    if (dir) { multiMove(dir); return; }
+    if (k === KEY.ENTER) { openGuide(); return; }
+    if (k === KEY.CH_UP || k === KEY.PG_UP) { multiZap(-1); return; }
+    if (k === KEY.CH_DOWN || k === KEY.PG_DOWN) { multiZap(1); return; }
+    if (k === KEY.STOP) { stopMulti(false); closePlayer(); }
   }
 
   /* ---------------- Tuşlar ---------------- */
@@ -1685,6 +1862,7 @@
       return; // OK: odaktaki düğmeye tıklanır
     }
 
+    if (M.on) { multiKey(e, k); return; }
     if (isBackKey(k, false)) { e.preventDefault(); closePlayer(); return; }
     e.preventDefault();
     switch (k) {

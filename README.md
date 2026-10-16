@@ -16,6 +16,9 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 - İzlerken açılan listeler paneli: yayını durdurmadan Canlı TV, Filmler ve Diziler'e göz at, kanal ya da film değiştir
 - Ses kanalı seçimi ve Türkçe dublaj varsa otomatik seçim
 - Dosyadaki altyazılar ve internetten Türkçe altyazı indirme (OpenSubtitles), zamanlama ve yazı boyutu ayarı
+- Listeler paneli açıkken yayın sağ üstte küçük pencerede devam eder
+- Çoklu ekran: aynı anda 2 ya da 4 canlı kanal (sağlayıcının bağlantı sınırına ve TV'ye bağlı)
+- Arama tüm kategorilerde yapılır; Magic Remote ile kaydırınca listenin tamamı yüklenir
 
 ## İzlerken kumanda
 
@@ -23,10 +26,16 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 |---|---|---|
 | OK | Kanal listesi paneli | Duraklat / devam |
 | Yukarı / aşağı | Kanal değiştir | Alt çubuk: Listeler, Ses, Altyazı |
-| Sol / sağ | Alt çubuk: Kanal listesi, Ses, Altyazı | 10 sn geri / ileri |
+| Sol / sağ | Alt çubuk: Kanal listesi, Ses, Altyazı, Çoklu ekran | 10 sn geri / ileri |
 | Geri | Açık panel ya da menüyü kapatır, yoksa listeye döner | Aynı |
 
 Panelde kırmızı tuş favoriye ekler. Altyazı menüsünde "Zamanlama" ve "Yazı boyutu" sol / sağ tuşlarıyla ayarlanır.
+
+## Çoklu ekran
+
+Canlı yayında sol / sağ ile alt çubuğu aç, **Çoklu ekran → 2 ekran** ya da **4 ekran** seç. Yön tuşlarıyla ekranlar arasında geçilir; sesi yalnızca seçili (sarı çerçeveli) ekran verir. OK ile o ekrana kanal seçilir, CH + / − kanal değiştirir, Geri seçili kanalla tek ekrana döner.
+
+Her ekran ayrı bir yayın bağlantısıdır. Sağlayıcı hesabın aynı anda kaç bağlantıya izin veriyorsa (Ayarlar → Hesap → Bağlantı) en fazla o kadar ekran açılır. TV'nin aynı anda kaç videoyu çözebildiği de sınırdır.
 
 ## Ses ve altyazı
 
