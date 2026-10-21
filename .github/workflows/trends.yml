@@ -1,0 +1,26 @@
+name: Trend listelerini güncelle
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  trends:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Listeleri hazırla
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+        run: python3 trends.py trends.json
+      - name: Kaydet
+        run: |
+          git config user.name "xtreamtv-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add trends.json
+          git diff --cached --quiet || git commit -m "Trend listeleri güncellendi"
+          git push
