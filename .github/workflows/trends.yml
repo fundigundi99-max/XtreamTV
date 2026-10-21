@@ -12,7 +12,9 @@ jobs:
   trends:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: main
       - name: Listeleri hazırla
         env:
           TMDB_KEY: ${{ secrets.TMDB_KEY }}
@@ -23,4 +25,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add trends.json
           git diff --cached --quiet || git commit -m "Trend listeleri güncellendi"
-          git push
+          git pull --rebase -X theirs origin main
+          git push origin HEAD:main
