@@ -2,7 +2,7 @@
  * Eski TV tarayıcıları için ES5 ile yazıldı (Tizen 3+, webOS 3+). */
 (function () {
   'use strict';
-  var APP_VERSION = '1.4.0';
+  var APP_VERSION = '1.5.0';
 
   function $(s) { return document.querySelector(s); }
   function enc(s) { return encodeURIComponent(s); }
@@ -313,14 +313,16 @@
     $('#items').innerHTML = '';
     $('#content-title').textContent = TITLES[sec];
 
-    cached('cats|' + sec, function () { return api(CAT_ACTION[sec]); }).then(function (cats) {
+    Promise.all([
+      cached('cats|' + sec, function () { return api(CAT_ACTION[sec]); }),
+      sec === 'live' ? Promise.resolve(null) : loadTrends()
+    ]).then(function (r) {
+      var cats = r[0];
       if (S.section !== sec) return;
-      var list = [{ category_id: 'fav', category_name: 'Favoriler' }, { category_id: '*', category_name: 'Tümü' }];
-      list = list.concat(Array.isArray(cats) ? cats : []);
-      $('#cat-list').innerHTML = list.map(function (c) {
-        return '<button class="f cat" data-cat="' + esc(c.category_id) + '">' + esc(c.category_name) + '</button>';
-      }).join('');
-      openCat(S.lastCat[sec] || (S.favs[sec].length ? 'fav' : '*'));
+      $('#cat-list').innerHTML = catListHtml(sec, cats);
+      var last = S.lastCat[sec];
+      if (last && !$('#cat-list .cat[data-cat="' + last + '"]')) last = null;
+      openCat(last || (S.favs[sec].length ? 'fav' : '*'));
     }).catch(function (e) {
       $('#cat-list').innerHTML = '<p class="empty">' + esc(e.message) + '</p>';
     });
@@ -349,6 +351,9 @@
     $('#items').className = sec === 'live' ? 'rows' : 'grid';
     $('#items').innerHTML = '<p class="empty">Yükleniyor…</p>';
     S.zoneFocus.items = null;
+    S.trendCat = /^tr:/.test(catId);
+    updateFilterButtons();
+    if (S.trendCat) { openTrendCat(catId); return; }
 
     loadList(sec, catId).then(function (arr) {
       if (S.section !== sec || S.catId !== catId || S.seriesView) return;
@@ -392,7 +397,7 @@
 
   function filtersVisible() { return S.section === 'vod' || S.section === 'series'; }
   function updateFilterButtons() {
-    var show = filtersVisible() && !S.seriesView;
+    var show = filtersVisible() && !S.seriesView && !S.trendCat;
     $('#filters').classList.toggle('hidden', !show);
     $('#btn-min').textContent = S.minRating ? 'Puan: ' + S.minRating + ' ve üzeri' : 'Puan: tümü';
     $('#btn-min').classList.toggle('on', S.minRating > 0);
@@ -415,7 +420,7 @@
 
   function applyFilter() {
     var q = normText($('#search').value);
-    var sec = S.section, rated = filtersVisible();
+    var sec = S.section, rated = filtersVisible() && !S.trendCat;
     // Arama, seçili kategoriyle sınırlı kalmasın: tüm bölüm içinde ara
     var source = q && S.searchAll && S.searchAll.sec === sec ? S.searchAll.list : S.base;
     var words = q ? q.split(' ') : [];
@@ -466,6 +471,7 @@
   });
 
   function itemHtml(sec, it, i) {
+    if (it._trend) return trendItemHtml(it, i);
     var fav = isFav(sec, it) ? ' fav' : '';
     if (sec === 'live') {
       var logo = it.stream_icon ? '<img class="logo" src="' + esc(it.stream_icon) + '" onerror="this.style.visibility=\'hidden\'">' : '<span class="logo"></span>';
@@ -490,7 +496,7 @@
     if (!el || S.seriesView) return;
     var i = +el.getAttribute('data-i');
     if (i > S.rendered - 20 && S.rendered < S.list.length) renderMore();
-    queueImdb(i);
+    if (!S.trendCat) queueImdb(i);
     heroUpdate(S.section, S.list[i]);
   });
 
@@ -523,6 +529,7 @@
     if (S.seriesView) { startPlayback(S.seriesView.eps, i, 'episode', { name: S.seriesView.series.name, info: S.seriesView.info }); return; }
     var it = S.list[i];
     if (S.section === 'live') startPlayback(S.list, i, 'live');
+    else if (it._trend) { if (it._match) openDetail(S.section, it._match, b); else openTrendDetail(it, b); }
     else openDetail(S.section, it, b);
   });
 
@@ -531,6 +538,10 @@
     if (!el || !el.classList.contains('item') || S.seriesView) return;
     var sec = S.section, it = S.list[+el.getAttribute('data-i')];
     if (!it) return;
+    if (it._trend) {
+      if (!it._match) { toast('Bu içerik sağlayıcında yok, favoriye eklenemez.'); return; }
+      it = it._match;
+    }
     var id = String(idOf(sec, it)), arr = S.favs[sec], k = arr.indexOf(id);
     if (k >= 0) { arr.splice(k, 1); toast(it.name + ' favorilerden çıkarıldı'); }
     else { arr.push(id); toast(it.name + ' favorilere eklendi'); }
@@ -627,6 +638,153 @@
     el.insertAdjacentHTML('beforeend', badgeHtml(job.sec, job.it));
   }
 
+  /* ---------------- Yeni ve trend (GitHub'daki günlük trends.json) ----------------
+   * Liste her gün GitHub Actions'ta hazırlanır (Netflix Top 10 + TMDB).
+   * Her başlık IPTV sağlayıcının kütüphanesinde aranır; bulunursa doğrudan açılır. */
+  var TRENDS_URL = window.XTV_TRENDS || 'https://raw.githubusercontent.com/fundigundi99-max/XtreamTV/main/trends.json';
+  var trendsPromise = null, trendsData = null, libIndex = {};
+
+  function loadTrends() {
+    if (trendsPromise) return trendsPromise;
+    trendsPromise = getJSON(TRENDS_URL + '?t=' + Math.floor(Date.now() / 600000), 8000).then(function (d) {
+      trendsData = d || {};
+      store.set('trends', trendsData);
+      return trendsData;
+    }).catch(function () {
+      trendsData = store.get('trends', null) || {};
+      return trendsData;
+    });
+    return trendsPromise;
+  }
+
+  function trendSections(sec) {
+    var d = trendsData || {};
+    return (sec === 'vod' ? d.movie : sec === 'series' ? d.tv : null) || [];
+  }
+
+  function catListHtml(sec, cats) {
+    var html = '', tr = trendSections(sec);
+    if (tr.length) {
+      html += '<div class="cat-head">Yeni ve trend</div>' + tr.map(function (t) {
+        return '<button class="f cat trend" data-cat="tr:' + esc(t.id) + '">' + esc(t.title) + '</button>';
+      }).join('') + '<div class="cat-head">Kütüphane</div>';
+    }
+    var list = [{ category_id: 'fav', category_name: 'Favoriler' }, { category_id: '*', category_name: 'Tümü' }].concat(Array.isArray(cats) ? cats : []);
+    return html + list.map(function (c) {
+      return '<button class="f cat" data-cat="' + esc(c.category_id) + '">' + esc(c.category_name) + '</button>';
+    }).join('');
+  }
+
+  // Başlıkları karşılaştırmak için sadeleştir: büyük/küçük harf, Türkçe harfler, noktalama
+  function normKey(s) {
+    var t = cleanTitle(s || '').toLocaleLowerCase('tr');
+    t = t.replace(/ı/g, 'i').replace(/ç/g, 'c').replace(/ğ/g, 'g').replace(/ö/g, 'o').replace(/ş/g, 's').replace(/ü/g, 'u');
+    try { t = t.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (e) {}
+    return t.replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  function buildIndex(sec, list) {
+    var ix = libIndex[sec];
+    if (ix && ix.n === list.length) return ix.map;
+    var map = {};
+    list.forEach(function (it) {
+      var k = normKey(it.name);
+      if (k) (map[k] = map[k] || []).push(it);
+    });
+    libIndex[sec] = { n: list.length, map: map };
+    return map;
+  }
+
+  function matchLib(x, map) {
+    var keys = [x.t, x.o, x.a], found = null;
+    for (var i = 0; i < keys.length && !found; i++) {
+      var k = keys[i] && normKey(keys[i]);
+      var hits = k && map[k];
+      if (!hits) continue;
+      found = hits[0];
+      if (x.y && hits.length > 1) {
+        for (var j = 0; j < hits.length; j++) if (+yearOf(hits[j]) === +x.y) { found = hits[j]; break; }
+      }
+    }
+    return found;
+  }
+
+  function openTrendCat(catId) {
+    var sec = S.section, id = catId.slice(3);
+    var secData = trendSections(sec).filter(function (t) { return t.id === id; })[0];
+    if (!secData) { $('#items').innerHTML = '<p class="empty">Bu liste artık yok. Listeleri yenilemek için uygulamayı yeniden aç.</p>'; return; }
+    $('#content-title').textContent = secData.title;
+    loadList(sec, '*').catch(function () { return []; }).then(function (lib) {
+      if (S.section !== sec || S.catId !== catId || S.seriesView) return;
+      var map = buildIndex(sec, Array.isArray(lib) ? lib : []);
+      S.base = secData.items.map(function (x) {
+        var it = { _trend: true, name: x.t, x: x };
+        it._match = matchLib(x, map);
+        return it;
+      });
+      var have = S.base.filter(function (it) { return it._match; }).length;
+      applyFilter();
+      $('#content-count').textContent = have + ' / ' + S.base.length + ' sağlayıcında var';
+    });
+  }
+
+  function trendItemHtml(it, i) {
+    var x = it.x, m = it._match, sec = S.section;
+    var img = x.p || (m && (sec === 'series' ? m.cover : m.stream_icon));
+    var fav = m && isFav(sec, m) ? ' fav' : '';
+    return '<button class="f item' + fav + (m ? '' : ' missing') + '" data-i="' + i + '"><div class="poster"><span class="ph">' + esc(x.t) + '</span>' +
+      (img ? '<img src="' + esc(img) + '" loading="lazy" onerror="this.remove()">' : '') +
+      (x.r ? '<span class="rate">★ ' + (+x.r).toFixed(1) + '</span>' : '') +
+      (x.n ? '<span class="rank">' + x.n + '</span>' : '') +
+      (m ? '' : '<span class="nope">Sağlayıcında yok</span>') +
+      '</div><span class="name">' + esc(x.t) + (x.y ? ' (' + x.y + ')' : '') + '</span></button>';
+  }
+
+  function heroTrend(it) {
+    var x = it.x;
+    $('#h-title').textContent = x.t;
+    var meta = (x.r ? '<span class="h-rate">★ ' + (+x.r).toFixed(1) + '</span>' : '') + (x.y ? '<span>' + x.y + '</span>' : '') +
+      (x.n ? '<span>Bu hafta ' + x.n + '. sırada</span>' : '') + (x.w > 1 ? '<span>' + x.w + ' haftadır listede</span>' : '') +
+      '<span class="' + (it._match ? 'h-have' : 'h-miss') + '">' + (it._match ? 'Sağlayıcında var' : 'Sağlayıcında yok') + '</span>';
+    $('#h-meta').innerHTML = meta;
+    $('#h-plot').textContent = x.d || '';
+    var bg = x.b || x.p;
+    $('#hero .h-bg').style.backgroundImage = bg ? 'url("' + String(bg).replace(/"/g, '%22') + '")' : 'none';
+    $('#hero').classList.toggle('soft', !x.b);
+  }
+
+  // Sağlayıcıda olmayan trend içerik için bilgi sayfası
+  function openTrendDetail(it, fromEl) {
+    var x = it.x;
+    D.open = true; D.sec = S.section; D.it = null; D.trend = it; D.fromEl = fromEl;
+    $('#detail').classList.remove('hidden');
+    $('#detail').innerHTML =
+      (x.b || x.p ? '<div class="d-bg" style="background-image:url(\'' + esc(x.b || x.p).replace(/'/g, '%27') + '\')"></div>' : '') +
+      '<div class="d-shade"></div><div class="d-body">' +
+        '<div class="d-poster">' + (x.p ? '<img src="' + esc(x.p) + '" onerror="this.remove()">' : '') + '</div>' +
+        '<div class="d-text"><h1>' + esc(x.t) + '</h1>' + (x.o ? '<div class="d-orig">' + esc(x.o) + '</div>' : '') +
+          '<div class="d-meta">' + (x.r ? '<span class="d-rate">★ ' + (+x.r).toFixed(1) + '</span>' : '') + (x.y ? '<span>' + x.y + '</span>' : '') +
+            (x.n ? '<span>Bu hafta ' + x.n + '. sırada</span>' : '') + '</div>' +
+          '<p class="d-plot">' + esc(x.d || 'Bu içerik için konu bilgisi yok.') + '</p>' +
+          '<p class="d-note">Bu içerik IPTV sağlayıcının kütüphanesinde bulunamadı. Farklı bir adla eklenmiş olabilir; kütüphanede aratabilirsin.</p>' +
+          '<div class="d-actions"><button class="f btn primary" data-act="searchlib">Kütüphanede ara</button><button class="f btn" data-act="back">Geri</button></div>' +
+        '</div></div>';
+    focusEl($('#detail .d-actions .btn'));
+  }
+
+  function searchLibrary(title) {
+    openCat('*');
+    var q = cleanTitle(title);
+    $('#search').value = q;
+    var sec = S.section;
+    loadList(sec, '*').then(function (all) {
+      S.searchAll = { sec: sec, list: Array.isArray(all) ? all : [] };
+      if (S.section !== sec || $('#search').value !== q) return;
+      applyFilter();
+      focusEl($('#items .item') || $('#search'));
+    });
+  }
+
   /* ---------------- Vitrin: odaktaki film / dizinin görseli ve konusu ---------------- */
   var heroTimer, heroItem = null;
   function heroVisible() { return (S.section === 'vod' || S.section === 'series') && !S.seriesView; }
@@ -635,6 +793,7 @@
     if (!heroVisible() || !it || it === heroItem) return;
     heroItem = it;
     clearTimeout(heroTimer);
+    if (it._trend) { heroTrend(it); return; }
     var rt = ratingOf(sec, it);
     $('#h-title').textContent = cleanTitle(it.name) || it.name;
     var meta = (rt.v ? '<span class="h-rate">' + (rt.imdb ? 'IMDb ' : '★ ') + rt.v.toFixed(1) + '</span>' : '');
@@ -687,7 +846,7 @@
   }
 
   function openDetail(sec, it, fromEl) {
-    D.open = true; D.sec = sec; D.it = it; D.fromEl = fromEl;
+    D.open = true; D.sec = sec; D.it = it; D.fromEl = fromEl; D.trend = null;
     $('#detail').classList.remove('hidden');
     renderDetail({}, 'loading');
     detailInfo(sec, it).then(function (d) {
@@ -765,14 +924,17 @@
   $('#detail').addEventListener('click', function (e) {
     var b = e.target.closest('[data-act]');
     if (!b || !D.open) return;
-    var act = b.getAttribute('data-act'), it = D.it, from = D.fromEl;
+    var act = b.getAttribute('data-act'), it = D.it, from = D.fromEl, tr = D.trend;
     if (act === 'fav') { detailFav(); return; }
+    D.trend = null;
     closeDetail();
+    if (act === 'back') return;
+    if (act === 'searchlib') { searchLibrary(tr.x.t); return; }
     if (act === 'episodes') { openSeries(it, from); return; }
     if (act === 'start') { delete S.pos['vod|' + it.stream_id]; store.set('pos', S.pos); }
     var idx = S.list.indexOf(it);
-    if (idx < 0) return;
-    startPlayback(S.list, idx, 'vod');
+    if (idx < 0) startPlayback([it], 0, 'vod');
+    else startPlayback(S.list, idx, 'vod');
   });
 
   /* ---------------- Diziler ---------------- */
@@ -823,10 +985,7 @@
     $('#cats-title').textContent = 'Kategoriler';
     // Kategori ve listeyi önbellekten yeniden kur
     cached('cats|' + sec, function () { return api(CAT_ACTION[sec]); }).then(function (cats) {
-      var list = [{ category_id: 'fav', category_name: 'Favoriler' }, { category_id: '*', category_name: 'Tümü' }].concat(cats || []);
-      $('#cat-list').innerHTML = list.map(function (c) {
-        return '<button class="f cat" data-cat="' + esc(c.category_id) + '">' + esc(c.category_name) + '</button>';
-      }).join('');
+      $('#cat-list').innerHTML = catListHtml(sec, cats);
       var btns = document.querySelectorAll('#cat-list .cat');
       for (var i = 0; i < btns.length; i++) {
         if (btns[i].getAttribute('data-cat') === String(catId)) { btns[i].classList.add('active'); S.zoneFocus.cats = btns[i]; }
@@ -838,6 +997,7 @@
       $('#items').innerHTML = '';
       S.rendered = 0;
       $('#content-count').textContent = S.list.length === S.base.length ? S.list.length : S.list.length + ' / ' + S.base.length;
+      updateFilterButtons();
       while (S.rendered <= idx && S.rendered < S.list.length) renderMore();
       focusEl($('#items .item[data-i="' + idx + '"]') || $('#items .item'));
     });
@@ -1031,8 +1191,8 @@
     }
     $('#osd-progress').classList.toggle('hidden', p.type === 'live');
     $('#osd-hint').textContent = p.type === 'live'
-      ? 'OK: kanal listesi     Yukarı / aşağı: kanal değiştir     Sol / sağ: ses, altyazı, çoklu ekran     Geri: çık'
-      : 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: listeler, ses ve altyazı     Geri: çık';
+      ? 'OK: kanal listesi     Yukarı / aşağı: kanal değiştir     Sol / sağ: ses, altyazı, çoklu ekran     Geri: listeler'
+      : 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: ses ve altyazı     Geri: listeler';
     $('#osd-bar').style.width = '0';
     $('#osd-time').textContent = '';
     renderBar();
@@ -1770,6 +1930,7 @@
 
   $('#g-tabs').addEventListener('click', function (e) {
     var b = e.target.closest('.gtab');
+    if (b && b.getAttribute('data-sec') === 'exit') { closePlayer(); return; }
     if (b) guideSection(b.getAttribute('data-sec'));
   });
   $('#g-cats').addEventListener('click', function (e) {
@@ -1994,8 +2155,8 @@
     if (isBackKey(k, false)) { stopMulti(true); return; }
     if (dir) { multiMove(dir); return; }
     if (k === KEY.ENTER) { openGuide(); return; }
-    if (k === KEY.CH_UP || k === KEY.PG_UP) { multiZap(-1); return; }
-    if (k === KEY.CH_DOWN || k === KEY.PG_DOWN) { multiZap(1); return; }
+    if (k === KEY.CH_UP || k === KEY.PG_UP) { multiZap(1); return; }
+    if (k === KEY.CH_DOWN || k === KEY.PG_DOWN) { multiZap(-1); return; }
     if (k === KEY.STOP) { stopMulti(false); closePlayer(); }
   }
 
@@ -2265,7 +2426,8 @@
     }
 
     if (M.on) { multiKey(e, k); return; }
-    if (isBackKey(k, false)) { e.preventDefault(); closePlayer(); return; }
+    // Geri: yayın kapanmaz, küçük pencerede devam eder ve listeler açılır
+    if (isBackKey(k, false)) { e.preventDefault(); openGuide(); return; }
     e.preventDefault();
     switch (k) {
       case KEY.ENTER: if (type === 'live') openGuide(); else togglePause(); break;
@@ -2275,8 +2437,8 @@
       case KEY.STOP: closePlayer(); break;
       case KEY.UP: case KEY.DOWN:
         if (type === 'live') zap(k === KEY.UP ? -1 : 1); else openBar(); break;
-      case KEY.CH_UP: case KEY.PG_UP: if (type === 'live') zap(-1); else showOsd(); break;
-      case KEY.CH_DOWN: case KEY.PG_DOWN: if (type === 'live') zap(1); else showOsd(); break;
+      case KEY.CH_UP: case KEY.PG_UP: if (type === 'live') zap(1); else showOsd(); break;
+      case KEY.CH_DOWN: case KEY.PG_DOWN: if (type === 'live') zap(-1); else showOsd(); break;
       case KEY.LEFT: case KEY.RIGHT:
         if (type === 'live') openBar(); else seek(k === KEY.LEFT ? -10 : 10); break;
       case KEY.RW: seek(-30); break;
@@ -2291,7 +2453,7 @@
     if (currentScreen() === 'player') { playerKey(e, k); return; }
     if (D.open && currentScreen() === 'main') {
       if (isBackKey(k, false)) { e.preventDefault(); closeDetail(); return; }
-      if (k === KEY.RED || k === 70) { e.preventDefault(); detailFav(); return; }
+      if (k === KEY.RED || k === 70) { e.preventDefault(); if (!D.trend) detailFav(); return; }
       var ddir = { 37: 'left', 38: 'up', 39: 'right', 40: 'down' }[k];
       if (ddir) { e.preventDefault(); move(ddir); }
       return;

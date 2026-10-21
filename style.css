@@ -507,3 +507,26 @@ input { border-radius: 0.6rem; }
   background: rgba(5, 11, 20, 0.92); border: 1px solid var(--line); z-index: 2;
 }
 #hints span:first-child { margin-left: 0; }
+
+/* ---------- Yeni ve trend ---------- */
+.cat-head { margin: 1.1rem 0.9rem 0.4rem; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.cat-head:first-child { margin-top: 0.2rem; }
+.cat.trend { color: var(--text); }
+.poster .rank {
+  position: absolute; left: 0.35rem; bottom: -0.35rem; z-index: 1;
+  font-size: 3.6rem; font-weight: 800; line-height: 1; letter-spacing: -0.05em;
+  color: var(--ink); -webkit-text-stroke: 0.12rem var(--focus);
+  text-shadow: 0 0.3rem 1rem rgba(0, 0, 0, 0.7);
+}
+.item.missing .poster img { opacity: 0.38; filter: grayscale(0.7); }
+.poster .nope {
+  position: absolute; left: 0; right: 0; top: 42%; text-align: center; z-index: 1;
+  padding: 0.3rem 0.4rem; font-size: 0.85rem; font-weight: 700; color: #F3D9A0;
+  background: rgba(5, 11, 20, 0.78);
+}
+.item.missing .name { color: #6E7C90; }
+#h-meta .h-have { color: #8FD9A8; font-weight: 600; }
+#h-meta .h-miss { color: #F3B08A; font-weight: 600; }
+.d-note { margin-top: 1rem; font-size: 1.05rem; line-height: 1.5; color: #F3D9A0; max-width: 42rem; }
+.gtab.gexit { margin-left: 1.4rem; color: var(--muted); border-style: dashed; }
+.item.missing .poster img ~ .ph, .item.missing .poster .ph { visibility: hidden; }

@@ -21,6 +21,9 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 - Arama tüm kategorilerde yapılır; Magic Remote ile kaydırınca listenin tamamı yüklenir
 - Film ve dizilerde bilgi sayfası: konu, oyuncular, yönetmen, tür, yıl, süre; listenin üstünde odaktaki içeriğin vitrini
 - Çoklu ekranda YouTube: arama, hazır Türk ve Alman haber kanallarının canlı yayınları, kendi listen
+- Filmler ve Diziler'de "Yeni ve trend": Netflix Türkiye / Almanya Top 10, Türkiye ve Almanya'da popüler olanlar, platformlara (Netflix, Prime Video, Disney+, Apple TV+, Exxen, HBO Max, tabii, Hulu) yeni gelenler; her başlık sağlayıcının kütüphanesinde aranır
+- İzlerken Geri tuşu yayını kapatmaz, listeleri açar; yayından çıkmak için panelde "Ana menü"
+- CH + sonraki, CH − önceki kanal
 
 ## İzlerken kumanda
 
@@ -29,7 +32,9 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 | OK | Kanal listesi paneli | Duraklat / devam |
 | Yukarı / aşağı | Kanal değiştir | Alt çubuk: Listeler, Ses, Altyazı |
 | Sol / sağ | Alt çubuk: Kanal listesi, Ses, Altyazı, Çoklu ekran | 10 sn geri / ileri |
-| Geri | Açık panel ya da menüyü kapatır, yoksa listeye döner | Aynı |
+| Geri | Listeler panelini açar, yayın küçük pencerede sürer; panelde tekrar Geri tam ekrana döner | Aynı |
+| Panelde "Ana menü" | Yayını kapatıp ana ekrana döner | Aynı |
+| CH + / CH − | Sonraki / önceki kanal | — |
 
 Panelde kırmızı tuş favoriye ekler. Altyazı menüsünde "Zamanlama" ve "Yazı boyutu" sol / sağ tuşlarıyla ayarlanır.
 
@@ -38,6 +43,16 @@ Panelde kırmızı tuş favoriye ekler. Altyazı menüsünde "Zamanlama" ve "Yaz
 Canlı yayında sol / sağ ile alt çubuğu aç, **Çoklu ekran → 2 ekran** ya da **4 ekran** seç. Yön tuşlarıyla ekranlar arasında geçilir; sesi yalnızca seçili (sarı çerçeveli) ekran verir. OK ile o ekrana kanal seçilir, CH + / − kanal değiştirir, Geri seçili kanalla tek ekrana döner.
 
 Her ekran ayrı bir yayın bağlantısıdır. Sağlayıcı hesabın aynı anda kaç bağlantıya izin veriyorsa (Ayarlar → Hesap → Bağlantı) en fazla o kadar ekran açılır. TV'nin aynı anda kaç videoyu çözebildiği de sınırdır.
+
+## Yeni ve trend listeleri
+
+Listeler her gün GitHub Actions'ta `trends.py` ile hazırlanır ve depodaki `trends.json` dosyasına yazılır. TV bu dosyayı okur; TV'ye anahtar girilmez.
+
+- **Netflix Top 10 (Türkiye, Almanya):** anahtar gerekmez.
+- **Popüler, dünyada bu hafta ve platformlara yeni gelenler:** TMDB anahtarı gerekir. themoviedb.org'da ücretsiz hesap aç → Ayarlar → API → anahtar oluştur. Anahtarı depoda Settings → Secrets and variables → Actions → New repository secret ile `TMDB_KEY` adıyla kaydet.
+- İş dosyası: `.github/workflows/trends.yml` (depoda bu yolda olmalı). Actions sekmesinden "Run workflow" ile hemen çalıştırılabilir.
+
+Her başlık sağlayıcının kütüphanesinde adıyla aranır. Bulunanlar doğrudan açılır; bulunamayanlarda bilgi sayfası ve "Kütüphanede ara" düğmesi çıkar. Platformlara "yeni gelenler", TMDB'de son 6 ayda çıkan ve o platformda olan popüler içeriklerdir; platformun eklediği tarih TMDB'de bulunmaz.
 
 ## YouTube (çoklu ekranda)
 
