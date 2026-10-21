@@ -28,14 +28,15 @@ IN_COUNTRY = {'TR': 'Türkiye’de', 'DE': 'Almanya’da'}
 
 # Platform adı, TMDB'deki adını yakalayan desen, bölge, ekranda görünen ad
 PLATFORMS = [
-    ('netflix', r'^netflix$', 'TR', 'Netflix’te yeni'),
-    ('prime', r'^amazon prime video$', 'TR', 'Prime Video’da yeni'),
-    ('disney', r'^disney plus$|^disney\+$', 'TR', 'Disney+’ta yeni'),
-    ('apple', r'^apple tv\+?$|^apple tv plus$', 'TR', 'Apple TV+’ta yeni'),
-    ('exxen', r'^exxen$', 'TR', 'Exxen’de yeni'),
-    ('max', r'^hbo max$|^max$|^blutv$', 'TR', 'HBO Max’te yeni'),
-    ('tabii', r'^tabii$', 'TR', 'tabii’de yeni'),
-    ('hulu', r'^hulu$', 'US', 'Hulu’da yeni (ABD)'),
+    # (kısa ad, TMDB adı deseni, bölge, "yeni" başlığı, yeni içerik yoksa kullanılan başlık)
+    ('netflix', r'^netflix$', 'TR', 'Netflix’te yeni', 'Netflix’te popüler'),
+    ('prime', r'^amazon prime video$', 'TR', 'Prime Video’da yeni', 'Prime Video’da popüler'),
+    ('disney', r'^disney( plus|\+)$', 'TR', 'Disney+’ta yeni', 'Disney+’ta popüler'),
+    ('apple', r'^apple tv( ?\+| plus)?$', 'TR', 'Apple TV+’ta yeni', 'Apple TV+’ta popüler'),
+    ('exxen', r'exxen', 'TR', 'Exxen’de yeni', 'Exxen’de popüler'),
+    ('max', r'^(hbo )?max$|^blutv$', 'TR', 'HBO Max’te yeni', 'HBO Max’te popüler'),
+    ('tabii', r'^tabii', 'TR', 'tabii’de yeni', 'tabii’de popüler'),
+    ('hulu', r'^hulu$', 'US', 'Hulu’da yeni (ABD)', 'Hulu’da popüler (ABD)'),
 ]
 
 KEY = os.environ.get('TMDB_KEY', '').strip()
@@ -188,6 +189,9 @@ def discover(kind, pages=2, **params):
     return items
 
 
+NOTES = []
+
+
 def tmdb_sections(kind):
     today = dt.date.today()
     since = (today - dt.timedelta(days=180)).isoformat()
@@ -200,18 +204,29 @@ def tmdb_sections(kind):
     trend = tmdb('trending/' + kind + '/week').get('results', [])
     secs.append({'id': 'world', 'title': 'Dünyada bu hafta', 'items': [item_from_tmdb(x, kind) for x in trend]})
     providers = {}
-    for pid, pattern, region, label in PLATFORMS:
+    for pid, pattern, region, label, pop_label in PLATFORMS:
         if region not in providers:
             providers[region] = provider_ids(kind, region)
-        match = [v for n, v in providers[region].items() if re.search(pattern, n)]
+        # Mağaza ve kanal sürümlerini (kiralama, "Amazon Channel" vb.) dışarıda bırak
+        match = [(n, v) for n, v in providers[region].items()
+                 if re.search(pattern, n) and 'store' not in n and 'channel' not in n]
         if not match:
-            print('platform bulunamadı:', label, region, file=sys.stderr)
+            near = [n for n in providers[region] if pid[:4] in n.replace(' ', '')]
+            NOTES.append('%s (%s): TMDB platform listesinde yok%s' % (pop_label.split('’')[0], region,
+                         ('; benzer adlar: ' + ', '.join(near)) if near else ''))
             continue
-        items = discover(kind, watch_region=region, with_watch_providers=match[0],
-                         with_watch_monetization_types='flatrate|free|ads', sort_by='popularity.desc',
-                         **{date_key + '.gte': since, date_key + '.lte': today.isoformat()})
+        common = dict(watch_region=region, with_watch_providers=match[0][1],
+                      with_watch_monetization_types='flatrate|free|ads', sort_by='popularity.desc')
+        items = discover(kind, **dict(common, **{date_key + '.gte': since, date_key + '.lte': today.isoformat()}))
+        title = label
+        if len(items) < 6:
+            # Son 6 ayda yeterince yeni içerik yoksa platformun popüler içeriklerini göster
+            items = discover(kind, **common)
+            title = pop_label
         if items:
-            secs.append({'id': 'p-' + pid, 'title': label, 'items': items})
+            secs.append({'id': 'p-' + pid, 'title': title, 'items': items})
+        else:
+            NOTES.append('%s (%s, %s): TMDB bu platformda içerik göstermiyor (TMDB adı: %s)' % (pop_label.split('’')[0], region, kind, match[0][0]))
     return secs
 
 
@@ -238,6 +253,7 @@ def build():
         data['notes'].append('TMDB_KEY tanımlı değil: yalnızca Netflix Top 10 listeleri var.')
     for kind in ('movie', 'tv'):
         data[kind] = [s for s in data[kind] if s.get('items')]
+    data['notes'].extend(dict.fromkeys(NOTES))
     return data
 
 
