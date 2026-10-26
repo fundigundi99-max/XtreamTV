@@ -15,6 +15,7 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 - İsteğe bağlı gerçek IMDb puanları (ücretsiz OMDb anahtarıyla)
 - İzlerken açılan listeler paneli: yayını durdurmadan Canlı TV, Filmler ve Diziler'e göz at, kanal ya da film değiştir
 - Ses kanalı seçimi ve Türkçe dublaj varsa otomatik seçim
+- Film ve dizilerde ses senkronu: ses görüntüden önce geliyorsa sesi 0,1 sn adımlarla 5 sn'ye kadar geciktir
 - Dosyadaki altyazılar ve internetten Türkçe altyazı indirme (OpenSubtitles), zamanlama ve yazı boyutu ayarı
 - Listeler paneli açıkken yayın sağ üstte küçük pencerede devam eder
 - Çoklu ekran: aynı anda 2 ya da 4 canlı kanal (sağlayıcının bağlantı sınırına ve TV'ye bağlı)
@@ -72,6 +73,8 @@ Ayarlar → Ses ve altyazı bölümünden varsayılanları seç:
 - **Altyazı:** "Kapalı", "Türkçe varsa aç" (dosyanın içindeki Türkçe altyazıyı açar) ya da "Türkçe, yoksa indir" (dosyada yoksa internetten indirir).
 
 Ses ve altyazı ayarları birbirinden bağımsızdır; Türkçe ses ile Türkçe altyazı birlikte açık olabilir.
+
+**Ses senkronu (film ve dizi):** İzlerken alt çubuktaki **Ses senkronu** düğmesine bas, sol / sağ ile sesi 0,1 sn adımlarla geciktir, OK ile sıfırla. Ayar o film ya da dizi için hatırlanır. Uygulama sesi yalnızca geciktirebilir; ses görüntüden *sonra* geliyorsa bunu web uygulaması düzeltemez (genellikle Bluetooth kulaklık ya da soundbar gecikmesidir, TV'nin ses ayarlarındaki AV senkronizasyonuna bak). Sağlayıcı sunucusu buna izin vermezse ses susar; uygulama bunu birkaç saniyede algılar, sesi normale döndürür ve yayına kaldığı yerden devam eder.
 
 **Dosyanın içindeki ses ve altyazılar:** Bunların seçilebilmesi TV'nin, dosyadaki kanalları uygulamaya bildirmesine bağlıdır. Çoğu HLS ve MP4 yayında çalışır; bazı MKV dosyalarında TV ek ses ya da altyazı kanallarını göstermeyebilir. Bu durumda Ses menüsü bunu söyler. Türkçe dublajlı sürümler çoğu sağlayıcıda ayrı film olarak, adında "TR" ya da "Dublaj" geçen kategorilerde bulunur.
 
