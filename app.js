@@ -2,7 +2,7 @@
  * Eski TV tarayıcıları için ES5 ile yazıldı (Tizen 3+, webOS 3+). */
 (function () {
   'use strict';
-  var APP_VERSION = '1.6.0';
+  var APP_VERSION = '1.6.2';
 
   function $(s) { return document.querySelector(s); }
   function enc(s) { return encodeURIComponent(s); }
@@ -1176,6 +1176,7 @@
 
   function loadCurrent() {
     var p = S.play, it = p.list[p.idx], url = streamUrl(p.type, it);
+    if (AV.ctx && !avGet()) avDetach();
     stopVideo();
     clearSub();
     retries = 0;
@@ -1430,7 +1431,7 @@
     return posKey();
   }
   function avGet() { var k = avKey(); return k ? (+S.avd[k] || 0) : 0; }
-  function avLabel(d) { return (d > 0 ? '+' : '') + d.toFixed(1).replace('.', ',') + ' sn'; }
+  function avLabel(d) { return (d > 0 ? '−' : '') + d.toFixed(1).replace('.', ',') + ' sn'; }
 
   function avEnsure() {
     if (AV.broken) return false;
@@ -1475,10 +1476,11 @@
     }, 500);
   }
 
-  function avRescue() {
-    var t = video.currentTime || 0;
-    AV.broken = true;
+  // Web Audio bağlantısını tamamen kaldır: video öğesi yenilenir, ses yeniden doğrudan TV oynatıcısından çıkar
+  function avDetach() {
+    clearInterval(AV.timer);
     try { AV.src.disconnect(); } catch (e) {}
+    try { if (AV.ctx && AV.ctx.close) AV.ctx.close(); } catch (e) {}
     AV.ctx = AV.src = AV.delay = AV.an = AV.el = null;
     stopVideo();
     var nv = video.cloneNode(false);
@@ -1486,7 +1488,17 @@
     video.parentNode.replaceChild(nv, video);
     video = nv;
     wireVideo();
+  }
+
+  function avReload() {
+    var t = video.currentTime || 0;
+    avDetach();
     if (S.play) { P.resumeAt = t > 5 ? t : 0; loadCurrent(); }
+  }
+
+  function avRescue() {
+    AV.broken = true;
+    avReload();
     toast('Bu sağlayıcıda ses kaydırma çalışmıyor, ses normale döndürüldü.');
   }
 
@@ -1495,16 +1507,17 @@
     v = Math.round(Math.max(0, Math.min(AV_MAX, v)) * 10) / 10;
     if (v) S.avd[k] = v; else delete S.avd[k];
     store.set('avd', S.avd);
+    if (!v && AV.ctx) { avReload(); return; }
     avApply(false);
   }
 
   function avMenuItem() {
     return {
       label: function () { return 'Ses gecikmesi: ' + avLabel(avGet()); },
-      sub: 'Sol / sağ: 0,1 sn     OK: sıfırla',
+      sub: 'Sol: sesi 0,1 sn geri al     Sağ: ileri al     OK: sıfırla',
       adjust: function (d) {
-        if (d < 0 && avGet() <= 0) { toast('Ses zaten görüntüyle aynı anda. Uygulama sesi görüntünün önüne alamaz.'); return; }
-        avSet(avGet() + d * 0.1);
+        if (d > 0 && avGet() <= 0) { toast('Ses en ileride. Uygulama sesi görüntünün önüne alamaz.'); return; }
+        avSet(avGet() - d * 0.1);
       },
       act: function () { avSet(0); renderMenu(P.menu.items.length - 1); toast('Ses gecikmesi sıfırlandı'); }
     };
@@ -1604,7 +1617,7 @@
     }
     if (vodish) {
       items.push(avMenuItem());
-      note = 'Ses görüntüden önce geliyorsa (dudaklar konuşmadan ses duyuluyorsa) gecikmeyi artır. ' +
+      note = 'Ses görüntüden önce geliyorsa (dudaklar kıpırdamadan ses duyuluyorsa) sol tuşla sesi geri al. ' +
         'Ayar bu film ya da dizi için hatırlanır.';
     }
     openMenu('Ses', items, note, focusDelay ? items.length - 1 : null);
