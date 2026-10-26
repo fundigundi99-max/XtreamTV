@@ -101,7 +101,7 @@ input:focus { border-color: var(--focus); box-shadow: 0 0 0 0.15rem var(--focus)
 #content-count { font-size: 1.1rem; font-weight: 500; color: var(--muted); margin-left: 0.5rem; }
 #search { width: 13rem; margin: 0; font-size: 1.05rem; padding: 0.6rem 0.9rem; flex-shrink: 0; }
 
-#items, #settings { flex: 1; overflow-y: auto; position: relative; padding: 0.6rem 2.2rem 5rem; }
+#items, #settings, #find { flex: 1; overflow-y: auto; position: relative; padding: 0.6rem 2.2rem 5rem; }
 .empty { color: var(--muted); font-size: 1.15rem; padding: 1rem 0.8rem; line-height: 1.5; }
 
 /* Kanal satırları */
@@ -530,3 +530,18 @@ input { border-radius: 0.6rem; }
 .d-note { margin-top: 1rem; font-size: 1.05rem; line-height: 1.5; color: #F3D9A0; max-width: 42rem; }
 .gtab.gexit { margin-left: 1.4rem; color: var(--muted); border-style: dashed; }
 .item.missing .poster img ~ .ph, .item.missing .poster .ph { visibility: hidden; }
+
+/* ---------- Sesli arama ---------- */
+.find-bar { display: flex; align-items: center; margin: 0.4rem 0 0.8rem; }
+.find-bar .chip { margin-left: 0.7rem; }
+.find-mic { display: flex; align-items: center; margin: 0; }
+.find-mic svg { width: 1.5rem; height: 1.5rem; margin-right: 0.6rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.find-mic.rec { background: #E5484D; border-color: #E5484D; color: #fff; animation: findPulse 1s ease-in-out infinite; }
+@keyframes findPulse { 50% { box-shadow: 0 0 0 0.6rem rgba(229, 72, 77, 0.25); } }
+.find-lang.on { border-color: var(--focus); color: var(--focus); }
+.find-lang.on:focus { color: var(--focus-ink); }
+#find-q { flex: 1; margin: 0 0 0 1.2rem; font-size: 1.15rem; padding: 0.7rem 1rem; max-width: 34rem; }
+.find-status { color: var(--muted); font-size: 1.05rem; min-height: 1.5rem; margin-bottom: 1rem; line-height: 1.45; }
+.find-h { font-size: 1.35rem; margin: 1.2rem 0 0.8rem; }
+.find-h span { color: var(--muted); font-weight: 500; font-size: 1.05rem; margin-left: 0.3rem; }
+.find-group.rows { max-width: 48rem; }

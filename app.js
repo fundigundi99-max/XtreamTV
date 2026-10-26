@@ -2,7 +2,7 @@
  * Eski TV tarayıcıları için ES5 ile yazıldı (Tizen 3+, webOS 3+). */
 (function () {
   'use strict';
-  var APP_VERSION = '1.6.2';
+  var APP_VERSION = '1.7.0';
 
   function $(s) { return document.querySelector(s); }
   function enc(s) { return encodeURIComponent(s); }
@@ -58,7 +58,7 @@
   var SORTS = ['default', 'rating', 'new', 'az'];
   var SORT_LABEL = { 'default': 'Sağlayıcı sırası', rating: 'En yüksek puan', 'new': 'En yeni eklenen', az: 'A-Z' };
 
-  var TITLES = { live: 'Canlı TV', vod: 'Filmler', series: 'Diziler', settings: 'Ayarlar' };
+  var TITLES = { find: 'Ara', live: 'Canlı TV', vod: 'Filmler', series: 'Diziler', settings: 'Ayarlar' };
   var CAT_ACTION = { live: 'get_live_categories', vod: 'get_vod_categories', series: 'get_series_categories' };
   var LIST_ACTION = { live: 'get_live_streams', vod: 'get_vod_streams', series: 'get_series' };
   var BATCH = 120;
@@ -124,7 +124,7 @@
 
   function showScreen(id) {
     ['login', 'main', 'player'].forEach(function (s) {
-      $('#' + s).className = 'screen' + (s === id ? '' : ' hidden') + (s === 'main' && S.section === 'settings' ? ' no-cats' : '');
+      $('#' + s).className = 'screen' + (s === id ? '' : ' hidden') + (s === 'main' && (S.section === 'settings' || S.section === 'find') ? ' no-cats' : '');
     });
   }
   function currentScreen() {
@@ -170,7 +170,7 @@
   function scrollParent(el) {
     var p = el.parentNode;
     while (p && p !== document.body) {
-      if (/^(items|cat-list|settings|g-cats|g-items|pmenu-list)$/.test(p.id)) return p;
+      if (/^(items|cat-list|settings|find|g-cats|g-items|pmenu-list)$/.test(p.id)) return p;
       p = p.parentNode;
     }
     return null;
@@ -297,24 +297,27 @@
       rail[i].classList.toggle('active', rail[i].getAttribute('data-section') === sec);
       if (focusRail && rail[i].getAttribute('data-section') === sec) focusEl(rail[i]);
     }
-    $('#main').classList.toggle('no-cats', sec === 'settings');
-    $('#items').classList.toggle('hidden', sec === 'settings');
-    $('#search').classList.toggle('hidden', sec === 'settings');
+    var panel = sec === 'settings' || sec === 'find';
+    $('#main').classList.toggle('no-cats', panel);
+    $('#items').classList.toggle('hidden', panel);
+    $('#search').classList.toggle('hidden', panel);
     $('#settings').classList.toggle('hidden', sec !== 'settings');
-    $('#hints').classList.toggle('hidden', sec === 'settings');
+    $('#find').classList.toggle('hidden', sec !== 'find');
+    $('#hints').classList.toggle('hidden', panel);
     $('#content-count').textContent = '';
     updateFilterButtons();
     heroItem = null;
     $('#hero').classList.add('hidden');
 
     if (sec === 'settings') { $('#content-title').textContent = 'Ayarlar'; renderSettings(); return; }
+    if (sec === 'find') { $('#content-title').textContent = 'Sesli ve yazılı arama'; findOpen(); return; }
 
     $('#cats-title').textContent = 'Kategoriler';
     $('#cat-list').innerHTML = '<p class="empty">Yükleniyor…</p>';
     $('#items').innerHTML = '';
     $('#content-title').textContent = TITLES[sec];
 
-    Promise.all([
+    return Promise.all([
       cached('cats|' + sec, function () { return api(CAT_ACTION[sec]); }),
       sec === 'live' ? Promise.resolve(null) : loadTrends()
     ]).then(function (r) {
@@ -536,7 +539,7 @@
 
   function toggleFav() {
     var el = document.activeElement;
-    if (!el || !el.classList.contains('item') || S.seriesView) return;
+    if (!el || !el.classList.contains('item') || S.seriesView || S.section === 'find') return;
     var sec = S.section, it = S.list[+el.getAttribute('data-i')];
     if (!it) return;
     if (it._trend) {
@@ -786,6 +789,224 @@
     });
   }
 
+  /* ---------------- Sesli ve yazılı arama (kanal, film, dizi) ---------------- */
+  // Kanal, film ve dizilerde birlikte arar. Türkçe ya da İngilizce söylenen adlar Wikidata ile
+  // diğer dildeki adlarına çevrilir (ör. "Yüzüklerin Efendisi" -> "The Lord of the Rings").
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var F = { lang: store.get('findLang', 'tr'), q: '', res: null, rec: null, busy: 0, rendered: false };
+  var FIND_SECS = [['live', 'Kanallar'], ['vod', 'Filmler'], ['series', 'Diziler']];
+  var NUMW = { bir: '1', iki: '2', uc: '3', dort: '4', bes: '5', alti: '6', yedi: '7', sekiz: '8', dokuz: '9', on: '10',
+    one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10' };
+  var findIx = {};
+
+  function findOpen() {
+    if (!F.rendered) {
+      F.rendered = true;
+      $('#find').innerHTML =
+        '<div class="find-bar">' +
+          '<button id="find-mic" class="f btn primary find-mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Konuş</span></button>' +
+          '<button class="f chip find-lang" data-lang="tr">Türkçe</button>' +
+          '<button class="f chip find-lang" data-lang="en">English</button>' +
+          '<input id="find-q" class="f" type="search" placeholder="Kanal, film ya da dizi adı" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">' +
+        '</div>' +
+        '<p id="find-status" class="find-status"></p>' +
+        '<div id="find-res"></div>';
+      $('#find-q').addEventListener('keydown', function (e) {
+        if (e.keyCode === 13) { e.preventDefault(); findRun(this.value); }
+      });
+      $('#find').addEventListener('click', function (e) {
+        var b = e.target.closest('button');
+        if (!b) return;
+        if (b.id === 'find-mic') { findListen(); return; }
+        if (b.classList.contains('find-lang')) { F.lang = b.getAttribute('data-lang'); store.set('findLang', F.lang); findLangUi(); if (F.q) findRun(F.q); return; }
+        if (b.classList.contains('item')) findPick(b);
+      });
+      findLangUi();
+      findStatus(SR ? 'Konuş’a bas ve kanal, film ya da dizi adını söyle. Türkçe ya da İngilizce ad söyleyebilirsin.'
+        : 'Yazarak arayabilirsin. Kutuya gelip OK’e bas; TV klavyesinde mikrofon simgesi varsa ona basıp söyleyebilirsin.');
+    }
+  }
+
+  function findLangUi() {
+    var b = document.querySelectorAll('#find .find-lang');
+    for (var i = 0; i < b.length; i++) b[i].classList.toggle('on', b[i].getAttribute('data-lang') === F.lang);
+  }
+  function findStatus(t) { var el = $('#find-status'); if (el) el.textContent = t || ''; }
+
+  function findListen() {
+    if (F.rec) { try { F.rec.stop(); } catch (e) {} return; }
+    if (!SR) { findNoMic(); return; }
+    var r, heard = false;
+    try { r = new SR(); } catch (e) { findNoMic(); return; }
+    r.lang = F.lang === 'en' ? 'en-US' : 'tr-TR';
+    r.interimResults = true;
+    r.maxAlternatives = 3;
+    r.continuous = false;
+    F.rec = r;
+    $('#find-mic').classList.add('rec');
+    $('#find-mic span').textContent = 'Dinliyorum…';
+    findStatus(F.lang === 'en' ? 'Dinliyorum (English)… Söyleyince kendiliğinden arar.' : 'Dinliyorum… Söyleyince kendiliğinden arar.');
+    r.onresult = function (ev) {
+      var res = ev.results[ev.results.length - 1], txt = res[0].transcript;
+      $('#find-q').value = txt;
+      if (res.isFinal) {
+        heard = true;
+        var alts = [];
+        for (var i = 1; i < res.length; i++) if (res[i].transcript) alts.push(res[i].transcript);
+        findRun(txt, alts);
+      }
+    };
+    r.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'no-speech') findStatus('Ses duyulamadı. Konuş’a tekrar basıp söyle.');
+      else if (e === 'aborted') {}
+      else findNoMic(e);
+    };
+    r.onend = function () {
+      F.rec = null;
+      var b = $('#find-mic'); if (b) { b.classList.remove('rec'); $('#find-mic span').textContent = 'Konuş'; }
+    };
+    try { r.start(); } catch (e) { F.rec = null; findNoMic(); }
+  }
+
+  function findNoMic(code) {
+    F.rec = null;
+    var b = $('#find-mic'); if (b) { b.classList.remove('rec'); $('#find-mic span').textContent = 'Konuş'; }
+    findStatus('Bu TV, uygulamaların mikrofonu doğrudan kullanmasına izin vermedi' + (code ? ' (' + code + ')' : '') +
+      '. Arama kutusuna gelip OK’e bas; açılan TV klavyesinde mikrofon simgesi varsa ona basıp söyle, yoksa yaz ve OK’e bas.');
+    focusEl($('#find-q'));
+  }
+
+  function qKeys(q) {
+    var k = normKey(q), out = [k];
+    var n = k.split(' ').map(function (w) { return NUMW[w] || w; }).join(' ');
+    if (n !== k) out.push(n);
+    return out.filter(Boolean);
+  }
+
+  function findIndex(sec, list) {
+    var ix = findIx[sec];
+    if (ix && ix.n === list.length) return ix.e;
+    var e = new Array(list.length);
+    for (var i = 0; i < list.length; i++) {
+      var k = normKey(list[i].name);
+      e[i] = { it: list[i], k: k, s: ' ' + k + ' ', c: k.replace(/ /g, '') };
+    }
+    findIx[sec] = { n: list.length, e: e };
+    return e;
+  }
+
+  function findScore(en, qk) {
+    if (!qk || !en.k) return 0;
+    var qc = qk.replace(/ /g, ''), pen = Math.min(20, Math.max(0, en.k.length - qk.length) / 4);
+    if (en.k === qk) return 100;
+    if (en.c === qc) return 95;
+    if (en.s.indexOf(' ' + qk + ' ') >= 0) return 80 - pen;
+    if (qc.length >= 3 && en.c.indexOf(qc) >= 0) return 62 - pen;
+    var w = qk.split(' '), ok = 0;
+    for (var i = 0; i < w.length; i++) if (w[i].length > 1 && en.k.indexOf(w[i]) >= 0) ok++;
+    if (w.length > 1 && ok === w.length) return 45 - pen;
+    return 0;
+  }
+
+  function findMatch(list, variants, max) {
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var best = 0;
+      for (var v = 0; v < variants.length; v++) {
+        var sc = findScore(list[i], variants[v].k) * variants[v].w;
+        if (sc > best) best = sc;
+      }
+      if (best > 0) out.push({ it: list[i].it, sc: best });
+    }
+    out.sort(function (a, b) { return b.sc - a.sc || String(a.it.name).length - String(b.it.name).length; });
+    return out.slice(0, max).map(function (x) { return x.it; });
+  }
+
+  // Wikidata: söylenen adın diğer dillerdeki film/dizi adları
+  function findAltTitles(q) {
+    var langs = F.lang === 'en' ? ['en', 'tr'] : ['tr', 'en'];
+    var base = 'https://www.wikidata.org/w/api.php?format=json&origin=*';
+    return getJSON(base + '&action=wbsearchentities&type=item&limit=6&language=' + langs[0] + '&uselang=' + langs[0] + '&search=' + enc(q), 6000).then(function (d) {
+      var ids = ((d && d.search) || []).map(function (x) { return x.id; }).slice(0, 6);
+      if (!ids.length) return [];
+      return getJSON(base + '&action=wbgetentities&props=labels|aliases|descriptions&languages=tr|en|de&ids=' + ids.join('|'), 6000).then(function (r) {
+        var out = [], ents = (r && r.entities) || {};
+        ids.forEach(function (id) {
+          var e = ents[id]; if (!e) return;
+          var desc = ['en', 'tr', 'de'].map(function (l) { return e.descriptions && e.descriptions[l] ? e.descriptions[l].value : ''; }).join(' ');
+          if (!/film|movie|series|serie|dizi|sitcom|anime|miniseries|show|programm|program|drama|cartoon|çizgi/i.test(desc)) return;
+          ['tr', 'en', 'de'].forEach(function (l) {
+            if (e.labels && e.labels[l]) out.push(e.labels[l].value);
+            ((e.aliases && e.aliases[l]) || []).slice(0, 3).forEach(function (a) { out.push(a.value); });
+          });
+        });
+        return out;
+      });
+    }).catch(function () { return []; });
+  }
+
+  function findRun(q, alts) {
+    q = String(q || '').trim();
+    F.q = q;
+    if (!q) { findStatus('Bir ad söyle ya da yaz.'); return; }
+    var job = ++F.busy;
+    findStatus('“' + q + '” aranıyor…');
+    $('#find-res').innerHTML = '<p class="empty">Aranıyor…</p>';
+    var lists = FIND_SECS.map(function (x) { return loadList(x[0], '*').catch(function () { return []; }); });
+    Promise.all([Promise.all(lists), findAltTitles(q)]).then(function (r) {
+      if (job !== F.busy) return;
+      var base = [], seen = {};
+      function add(t, w) {
+        qKeys(t).forEach(function (k) { if (k && !seen[k]) { seen[k] = 1; base.push({ k: k, w: w }); } });
+      }
+      add(q, 1);
+      (alts || []).forEach(function (a) { add(a, 0.85); });
+      var direct = base.slice();
+      r[1].forEach(function (t) { add(t, 0.92); });
+      var res = {}, total = 0;
+      FIND_SECS.forEach(function (x, i) {
+        var arr = Array.isArray(r[0][i]) ? r[0][i] : [];
+        var ix = findIndex(x[0], arr);
+        res[x[0]] = findMatch(ix, x[0] === 'live' ? direct : base, 30);
+        total += res[x[0]].length;
+      });
+      F.res = res;
+      findRender(q, total, r[1].length);
+    });
+  }
+
+  function findRender(q, total, altN) {
+    var html = '';
+    FIND_SECS.forEach(function (x) {
+      var arr = F.res[x[0]];
+      if (!arr.length) return;
+      html += '<h3 class="find-h">' + x[1] + ' <span>' + arr.length + '</span></h3>' +
+        '<div class="' + (x[0] === 'live' ? 'rows' : 'grid') + ' find-group" data-sec="' + x[0] + '">' +
+        arr.map(function (it, i) { return itemHtml(x[0], it, i); }).join('') + '</div>';
+    });
+    $('#find-res').innerHTML = html || '<p class="empty">“' + esc(q) + '” için kanal, film ya da dizi bulunamadı. Farklı söylemeyi ya da ' +
+      (F.lang === 'tr' ? 'English' : 'Türkçe') + ' adını denemeyi düşünebilirsin.</p>';
+    findStatus(total ? '“' + q + '” için ' + total + ' sonuç' + (altN ? ' (Türkçe ve İngilizce adlarıyla birlikte)' : '') : '');
+    var first = $('#find-res .item');
+    if (first) focusEl(first);
+  }
+
+  function findPick(b) {
+    var g = b.closest('.find-group');
+    if (!g) return;
+    var sec = g.getAttribute('data-sec'), it = F.res[sec][+b.getAttribute('data-i')];
+    if (!it) return;
+    if (sec === 'live') {
+      loadList('live', '*').then(function (all) {
+        var i = all.indexOf(it);
+        if (i < 0) startPlayback([it], 0, 'live'); else startPlayback(all, i, 'live');
+      });
+      return;
+    }
+    openDetail(sec, it, b);
+  }
+
   /* ---------------- Vitrin: odaktaki film / dizinin görseli ve konusu ---------------- */
   var heroTimer, heroItem = null;
   function heroVisible() { return (S.section === 'vod' || S.section === 'series') && !S.seriesView; }
@@ -931,7 +1152,10 @@
     closeDetail();
     if (act === 'back') return;
     if (act === 'searchlib') { searchLibrary(tr.x.t); return; }
-    if (act === 'episodes') { openSeries(it, from); return; }
+    if (act === 'episodes') {
+      if (S.section !== 'series') { var sp = openSection('series'); if (sp && sp.then) sp.then(function () { openSeries(it, null); }); else openSeries(it, null); return; }
+      openSeries(it, from); return;
+    }
     if (act === 'start') { delete S.pos['vod|' + it.stream_id]; store.set('pos', S.pos); }
     var idx = S.list.indexOf(it);
     if (idx < 0) startPlayback([it], 0, 'vod');
@@ -2502,8 +2726,8 @@
       focusEl(S.zoneFocus.cats && S.zoneFocus.cats.offsetParent ? S.zoneFocus.cats : $('#cat-list .cat.active') || $('#cat-list .cat'));
       return;
     }
-    if (z === 'items' || z === 'search' || z === 'settings') {
-      var c = S.section === 'settings' ? $('.rail-item.active') : ($('#cat-list .cat.active') || $('#cat-list .cat'));
+    if (z === 'items' || z === 'search' || z === 'settings' || z === 'find') {
+      var c = S.section === 'settings' || S.section === 'find' ? $('.rail-item.active') : ($('#cat-list .cat.active') || $('#cat-list .cat'));
       focusEl(c);
       return;
     }

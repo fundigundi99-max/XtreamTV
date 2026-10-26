@@ -26,6 +26,15 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 - İzlerken Geri tuşu yayını kapatmaz, listeleri açar; yayından çıkmak için panelde "Ana menü"
 - CH + sonraki, CH − önceki kanal
 
+## Sesli arama
+
+Soldaki menüde en üstte **Ara** var. Kanal, film ve dizilerde birlikte arar.
+
+- **Konuş**'a bas ve adı söyle; **Türkçe / English** düğmesi hangi dilde konuşacağını seçer.
+- Türkçe söylediğin bir filmin İngilizce adıyla eklenmiş olması sorun değil (ör. "Yüzüklerin Efendisi" → "The Lord of the Rings"). Adlar Wikidata üzerinden iki dilde eşleştirilir.
+- Kanallarda "TRT bir", "A TV" gibi söyleyişler "TRT 1", "ATV" ile eşleşir.
+- TV uygulamaya mikrofon vermezse ekranda söylenir; o zaman arama kutusuna gelip OK'e bas ve TV klavyesinin mikrofon simgesini kullan ya da yaz.
+
 ## İzlerken kumanda
 
 | Tuş | Canlı yayında | Film ve dizide |
@@ -74,7 +83,7 @@ Ayarlar → Ses ve altyazı bölümünden varsayılanları seç:
 
 Ses ve altyazı ayarları birbirinden bağımsızdır; Türkçe ses ile Türkçe altyazı birlikte açık olabilir.
 
-**Ses senkronu (film ve dizi):** İzlerken alt çubuktaki **Ses senkronu** düğmesine bas, sol / sağ ile sesi 0,1 sn adımlarla geciktir, OK ile sıfırla. Ayar o film ya da dizi için hatırlanır. Uygulama sesi yalnızca geciktirebilir; ses görüntüden *sonra* geliyorsa bunu web uygulaması düzeltemez (genellikle Bluetooth kulaklık ya da soundbar gecikmesidir, TV'nin ses ayarlarındaki AV senkronizasyonuna bak). Sağlayıcı sunucusu buna izin vermezse ses susar; uygulama bunu birkaç saniyede algılar, sesi normale döndürür ve yayına kaldığı yerden devam eder.
+**Ses senkronu (film ve dizi):** İzlerken alt çubuktaki **Ses senkronu** düğmesine bas, **sol** ile sesi 0,1 sn adımlarla geri al (−0,1, −0,2 … −5,0 sn), sağ ile ileri al, OK ile sıfırla. Ayar o film ya da dizi için hatırlanır. Uygulama sesi yalnızca geciktirebilir; ses görüntüden *sonra* geliyorsa bunu web uygulaması düzeltemez (genellikle Bluetooth kulaklık ya da soundbar gecikmesidir, TV'nin ses ayarlarındaki AV senkronizasyonuna bak). Sağlayıcı sunucusu buna izin vermezse ses susar; uygulama bunu birkaç saniyede algılar, sesi normale döndürür ve yayına kaldığı yerden devam eder.
 
 **Dosyanın içindeki ses ve altyazılar:** Bunların seçilebilmesi TV'nin, dosyadaki kanalları uygulamaya bildirmesine bağlıdır. Çoğu HLS ve MP4 yayında çalışır; bazı MKV dosyalarında TV ek ses ya da altyazı kanallarını göstermeyebilir. Bu durumda Ses menüsü bunu söyler. Türkçe dublajlı sürümler çoğu sağlayıcıda ayrı film olarak, adında "TR" ya da "Dublaj" geçen kategorilerde bulunur.
 
