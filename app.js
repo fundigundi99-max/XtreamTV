@@ -2,7 +2,7 @@
  * Eski TV tarayıcıları için ES5 ile yazıldı (Tizen 3+, webOS 3+). */
 (function () {
   'use strict';
-  var APP_VERSION = '1.7.0';
+  var APP_VERSION = '1.8.0';
 
   function $(s) { return document.querySelector(s); }
   function enc(s) { return encodeURIComponent(s); }
@@ -47,7 +47,7 @@
     yt: store.get('yt', { key: '', mine: [] })
   };
   function extendPref(p) {
-    var d = { audio: 'tr', subs: 'tr', size: 'm' };
+    var d = { audio: 'tr', subs: 'tr', size: 'm', zoom: 'fit' };
     for (var k in p) d[k] = p[k];
     return d;
   }
@@ -150,7 +150,7 @@
   /* ---------------- Uzaktan kumanda ile gezinme ---------------- */
   function focusables() {
     var name = currentScreen(), scr = $('#' + name);
-    if (name === 'player') scr = P.layer === 'guide' ? $('#guide') : P.layer === 'menu' ? $('#pmenu') : $('#pbar');
+    if (name === 'player') scr = P.layer === 'guide' ? $('#guide') : P.layer === 'menu' ? $('#pmenu') : P.layer === 'find' ? $('#pfind') : $('#pbar');
     else if (name === 'main' && D.open) scr = $('#detail');
     var all = scr.querySelectorAll('.f'), out = [];
     for (var i = 0; i < all.length; i++) {
@@ -170,7 +170,7 @@
   function scrollParent(el) {
     var p = el.parentNode;
     while (p && p !== document.body) {
-      if (/^(items|cat-list|settings|find|g-cats|g-items|pmenu-list)$/.test(p.id)) return p;
+      if (/^(items|cat-list|settings|find|g-cats|g-items|pmenu-list|pf-res)$/.test(p.id)) return p;
       p = p.parentNode;
     }
     return null;
@@ -792,6 +792,7 @@
   /* ---------------- Sesli ve yazılı arama (kanal, film, dizi) ---------------- */
   // Kanal, film ve dizilerde birlikte arar. Türkçe ya da İngilizce söylenen adlar Wikidata ile
   // diğer dildeki adlarına çevrilir (ör. "Yüzüklerin Efendisi" -> "The Lord of the Rings").
+  // Tanıma hatalarına karşı: tanıyıcının tüm alternatifleri, sesli benzerlik ve harf benzerliği kullanılır.
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var F = { lang: store.get('findLang', 'tr'), q: '', res: null, rec: null, busy: 0, rendered: false };
   var FIND_SECS = [['live', 'Kanallar'], ['vod', 'Filmler'], ['series', 'Diziler']];
@@ -799,89 +800,76 @@
     one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9', ten: '10' };
   var findIx = {};
 
-  function findOpen() {
-    if (!F.rendered) {
-      F.rendered = true;
-      $('#find').innerHTML =
-        '<div class="find-bar">' +
-          '<button id="find-mic" class="f btn primary find-mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Konuş</span></button>' +
-          '<button class="f chip find-lang" data-lang="tr">Türkçe</button>' +
-          '<button class="f chip find-lang" data-lang="en">English</button>' +
-          '<input id="find-q" class="f" type="search" placeholder="Kanal, film ya da dizi adı" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">' +
-        '</div>' +
-        '<p id="find-status" class="find-status"></p>' +
-        '<div id="find-res"></div>';
-      $('#find-q').addEventListener('keydown', function (e) {
-        if (e.keyCode === 13) { e.preventDefault(); findRun(this.value); }
-      });
-      $('#find').addEventListener('click', function (e) {
-        var b = e.target.closest('button');
-        if (!b) return;
-        if (b.id === 'find-mic') { findListen(); return; }
-        if (b.classList.contains('find-lang')) { F.lang = b.getAttribute('data-lang'); store.set('findLang', F.lang); findLangUi(); if (F.q) findRun(F.q); return; }
-        if (b.classList.contains('item')) findPick(b);
-      });
-      findLangUi();
-      findStatus(SR ? 'Konuş’a bas ve kanal, film ya da dizi adını söyle. Türkçe ya da İngilizce ad söyleyebilirsin.'
-        : 'Yazarak arayabilirsin. Kutuya gelip OK’e bas; TV klavyesinde mikrofon simgesi varsa ona basıp söyleyebilirsin.');
-    }
-  }
-
-  function findLangUi() {
-    var b = document.querySelectorAll('#find .find-lang');
-    for (var i = 0; i < b.length; i++) b[i].classList.toggle('on', b[i].getAttribute('data-lang') === F.lang);
-  }
-  function findStatus(t) { var el = $('#find-status'); if (el) el.textContent = t || ''; }
-
-  function findListen() {
-    if (F.rec) { try { F.rec.stop(); } catch (e) {} return; }
-    if (!SR) { findNoMic(); return; }
-    var r, heard = false;
-    try { r = new SR(); } catch (e) { findNoMic(); return; }
+  /* --- Konuşma tanıma (ana ekran ve oynatıcı ortak) --- */
+  // o: { onText(t), onFinal(t, alternatifler), onState(dinliyor), onFail(kod) }
+  function listen(o) {
+    if (F.rec) { try { F.rec.abort(); } catch (e) {} F.rec = null; }
+    if (!SR) { o.onFail(''); return; }
+    var r, got = false;
+    try { r = new SR(); } catch (e) { o.onFail(''); return; }
     r.lang = F.lang === 'en' ? 'en-US' : 'tr-TR';
     r.interimResults = true;
-    r.maxAlternatives = 3;
+    r.maxAlternatives = 5;
     r.continuous = false;
     F.rec = r;
-    $('#find-mic').classList.add('rec');
-    $('#find-mic span').textContent = 'Dinliyorum…';
-    findStatus(F.lang === 'en' ? 'Dinliyorum (English)… Söyleyince kendiliğinden arar.' : 'Dinliyorum… Söyleyince kendiliğinden arar.');
+    o.onState(true);
     r.onresult = function (ev) {
-      var res = ev.results[ev.results.length - 1], txt = res[0].transcript;
-      $('#find-q').value = txt;
-      if (res.isFinal) {
-        heard = true;
+      var res = ev.results[ev.results.length - 1];
+      if (!res || !res[0]) return;
+      o.onText(res[0].transcript);
+      if (res.isFinal && !got) {
+        got = true;
         var alts = [];
-        for (var i = 1; i < res.length; i++) if (res[i].transcript) alts.push(res[i].transcript);
-        findRun(txt, alts);
+        for (var i = 1; i < res.length; i++) if (res[i].transcript && alts.indexOf(res[i].transcript) < 0) alts.push(res[i].transcript);
+        o.onFinal(res[0].transcript, alts);
       }
     };
     r.onerror = function (ev) {
       var e = ev && ev.error;
-      if (e === 'no-speech') findStatus('Ses duyulamadı. Konuş’a tekrar basıp söyle.');
-      else if (e === 'aborted') {}
-      else findNoMic(e);
+      if (e === 'aborted') return;
+      if (e === 'no-speech') { o.onFail('no-speech'); return; }
+      o.onFail(e || 'error');
     };
-    r.onend = function () {
-      F.rec = null;
-      var b = $('#find-mic'); if (b) { b.classList.remove('rec'); $('#find-mic span').textContent = 'Konuş'; }
-    };
-    try { r.start(); } catch (e) { F.rec = null; findNoMic(); }
+    r.onend = function () { if (F.rec === r) F.rec = null; o.onState(false); };
+    try { r.start(); } catch (e) { F.rec = null; o.onState(false); o.onFail('start'); }
+  }
+  function stopListen() { if (F.rec) { try { F.rec.abort(); } catch (e) {} F.rec = null; } }
+  function langName2() { return F.lang === 'en' ? 'English' : 'Türkçe'; }
+  function noMicText(code) {
+    if (code === 'no-speech') return 'Ses duyulamadı. Tekrar dene ve kumandayı ağzına yakın tut.';
+    return 'Bu TV, uygulamaların mikrofonu doğrudan kullanmasına izin vermedi' + (code ? ' (' + code + ')' : '') +
+      '. Arama kutusuna gelip OK’e bas; TV klavyesindeki mikrofon simgesiyle söyle ya da yaz. ' +
+      'TV klavyesinin mikrofonu TV’nin dil ayarındaki dili dinler.';
   }
 
-  function findNoMic(code) {
-    F.rec = null;
-    var b = $('#find-mic'); if (b) { b.classList.remove('rec'); $('#find-mic span').textContent = 'Konuş'; }
-    findStatus('Bu TV, uygulamaların mikrofonu doğrudan kullanmasına izin vermedi' + (code ? ' (' + code + ')' : '') +
-      '. Arama kutusuna gelip OK’e bas; açılan TV klavyesinde mikrofon simgesi varsa ona basıp söyle, yoksa yaz ve OK’e bas.');
-    focusEl($('#find-q'));
-  }
-
+  /* --- Eşleştirme --- */
   function qKeys(q) {
     var k = normKey(q), out = [k];
     var n = k.split(' ').map(function (w) { return NUMW[w] || w; }).join(' ');
     if (n !== k) out.push(n);
     return out.filter(Boolean);
+  }
+  // Sesli benzerlik anahtarı: tanıyıcının yazım farklarını (w/v, sch/ş, z/s, çift harf…) yok sayar
+  function phon(c) {
+    return c.replace(/sch/g, 's').replace(/sh/g, 's').replace(/ch/g, 'c').replace(/ph/g, 'f').replace(/th/g, 't')
+      .replace(/ck/g, 'k').replace(/w/g, 'v').replace(/q/g, 'k').replace(/x/g, 'ks').replace(/z/g, 's').replace(/y/g, 'i')
+      .replace(/(.)\1+/g, '$1');
+  }
+  // Ünsüz iskeleti: ünlüleri yanlış duyulan sözcükleri yakalar ("brekin bed" ~ "breaking bad")
+  function skel(p) { return p.replace(/ng/g, 'n').replace(/[aeiou]/g, '').replace(/(.)\1+/g, '$1'); }
+  function bigrams(s) {
+    var m = {}, n = 0;
+    for (var i = 0; i < s.length - 1; i++) { var g = s.substr(i, 2); m[g] = (m[g] || 0) + 1; n++; }
+    return { m: m, n: n };
+  }
+  function dice(s, qb) {
+    if (s.length < 2 || !qb.n) return 0;
+    var used = {}, hit = 0;
+    for (var i = 0; i < s.length - 1; i++) {
+      var g = s.substr(i, 2), c = qb.m[g];
+      if (c && (used[g] || 0) < c) { used[g] = (used[g] || 0) + 1; hit++; }
+    }
+    return 2 * hit / (s.length - 1 + qb.n);
   }
 
   function findIndex(sec, list) {
@@ -889,35 +877,62 @@
     if (ix && ix.n === list.length) return ix.e;
     var e = new Array(list.length);
     for (var i = 0; i < list.length; i++) {
-      var k = normKey(list[i].name);
-      e[i] = { it: list[i], k: k, s: ' ' + k + ' ', c: k.replace(/ /g, '') };
+      var k = normKey(list[i].name), c = k.replace(/ /g, '');
+      var ph = phon(c);
+      e[i] = { it: list[i], k: k, s: ' ' + k + ' ', c: c, p: ph, sk: skel(ph) };
     }
     findIx[sec] = { n: list.length, e: e };
     return e;
   }
 
-  function findScore(en, qk) {
-    if (!qk || !en.k) return 0;
-    var qc = qk.replace(/ /g, ''), pen = Math.min(20, Math.max(0, en.k.length - qk.length) / 4);
-    if (en.k === qk) return 100;
-    if (en.c === qc) return 95;
-    if (en.s.indexOf(' ' + qk + ' ') >= 0) return 80 - pen;
-    if (qc.length >= 3 && en.c.indexOf(qc) >= 0) return 62 - pen;
-    var w = qk.split(' '), ok = 0;
-    for (var i = 0; i < w.length; i++) if (w[i].length > 1 && en.k.indexOf(w[i]) >= 0) ok++;
-    if (w.length > 1 && ok === w.length) return 45 - pen;
-    return 0;
+  function mkVariant(k, w) {
+    var c = k.replace(/ /g, ''), p = phon(c);
+    var sk = skel(p);
+    return { k: k, c: c, p: p, w: w, b: bigrams(p), sk: sk, sb: bigrams(sk), words: k.split(' ') };
+  }
+
+  function findScore(en, v, fuzzy) {
+    if (!v.k || !en.k) return 0;
+    var pen = Math.min(20, Math.max(0, en.k.length - v.k.length) / 4);
+    if (!fuzzy) {
+      if (en.k === v.k) return 100;
+      if (en.c === v.c) return 95;
+      if (en.s.indexOf(' ' + v.k + ' ') >= 0) return 80 - pen;
+      if (v.c.length >= 3 && en.c.indexOf(v.c) >= 0) return 62 - pen;
+      var ok = 0;
+      for (var i = 0; i < v.words.length; i++) if (v.words[i].length > 1 && en.k.indexOf(v.words[i]) >= 0) ok++;
+      if (v.words.length > 1 && ok === v.words.length) return 45 - pen;
+      return 0;
+    }
+    if (en.p === v.p) return 70;
+    if (v.p.length >= 4 && en.p.indexOf(v.p) >= 0) return 56 - pen;
+    var L = en.p.length, Q = v.p.length;
+    if (Q < 3 || L < Q * 0.5 || L > Q * 2.2) return 0;
+    var d = dice(en.p, v.b), sc = d >= 0.62 ? 20 + d * 35 - pen / 2 : 0;
+    if (v.sk.length >= 4) {
+      var d2 = dice(en.sk, v.sb);
+      if (d2 >= 0.7) sc = Math.max(sc, 15 + d2 * 30 - pen / 2);
+    }
+    return sc;
   }
 
   function findMatch(list, variants, max) {
-    var out = [];
-    for (var i = 0; i < list.length; i++) {
-      var best = 0;
-      for (var v = 0; v < variants.length; v++) {
-        var sc = findScore(list[i], variants[v].k) * variants[v].w;
-        if (sc > best) best = sc;
+    function pass(fuzzy) {
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        var best = 0;
+        for (var v = 0; v < variants.length; v++) {
+          var sc = findScore(list[i], variants[v], fuzzy) * variants[v].w;
+          if (sc > best) best = sc;
+        }
+        if (best > 0) out.push({ it: list[i].it, sc: best });
       }
-      if (best > 0) out.push({ it: list[i].it, sc: best });
+      return out;
+    }
+    var out = pass(false);
+    if (out.length < 3) {
+      var seen = {}; out.forEach(function (x) { seen[x.it.name + '|' + (x.it.stream_id || x.it.series_id)] = 1; });
+      pass(true).forEach(function (x) { if (!seen[x.it.name + '|' + (x.it.stream_id || x.it.series_id)]) out.push(x); });
     }
     out.sort(function (a, b) { return b.sc - a.sc || String(a.it.name).length - String(b.it.name).length; });
     return out.slice(0, max).map(function (x) { return x.it; });
@@ -946,33 +961,100 @@
     }).catch(function () { return []; });
   }
 
-  function findRun(q, alts) {
-    q = String(q || '').trim();
-    F.q = q;
-    if (!q) { findStatus('Bir ad söyle ya da yaz.'); return; }
-    var job = ++F.busy;
-    findStatus('“' + q + '” aranıyor…');
-    $('#find-res').innerHTML = '<p class="empty">Aranıyor…</p>';
+  // Ortak arama: { res: {live, vod, series}, total, altN }
+  function findSearch(q, alts) {
     var lists = FIND_SECS.map(function (x) { return loadList(x[0], '*').catch(function () { return []; }); });
-    Promise.all([Promise.all(lists), findAltTitles(q)]).then(function (r) {
-      if (job !== F.busy) return;
+    return Promise.all([Promise.all(lists), findAltTitles(q)]).then(function (r) {
       var base = [], seen = {};
       function add(t, w) {
-        qKeys(t).forEach(function (k) { if (k && !seen[k]) { seen[k] = 1; base.push({ k: k, w: w }); } });
+        qKeys(t).forEach(function (k) { if (k && !seen[k]) { seen[k] = 1; base.push(mkVariant(k, w)); } });
       }
       add(q, 1);
-      (alts || []).forEach(function (a) { add(a, 0.85); });
+      (alts || []).forEach(function (a, i) { add(a, 0.9 - i * 0.03); });
       var direct = base.slice();
       r[1].forEach(function (t) { add(t, 0.92); });
       var res = {}, total = 0;
       FIND_SECS.forEach(function (x, i) {
         var arr = Array.isArray(r[0][i]) ? r[0][i] : [];
-        var ix = findIndex(x[0], arr);
-        res[x[0]] = findMatch(ix, x[0] === 'live' ? direct : base, 30);
+        res[x[0]] = findMatch(findIndex(x[0], arr), x[0] === 'live' ? direct : base, 30);
         total += res[x[0]].length;
       });
-      F.res = res;
-      findRender(q, total, r[1].length);
+      return { res: res, total: total, altN: r[1].length };
+    });
+  }
+
+  function altChips(alts, cls) {
+    if (!alts || !alts.length) return '';
+    return '<div class="find-alts"><span>Bunu mu demek istedin:</span>' + alts.slice(0, 4).map(function (a) {
+      return '<button class="f chip ' + cls + '" data-q="' + esc(a) + '">' + esc(a) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  /* --- Ana ekrandaki Ara bölümü --- */
+  function findOpen() {
+    if (!F.rendered) {
+      F.rendered = true;
+      $('#find').innerHTML =
+        '<div class="find-bar">' +
+          '<button id="find-mic" class="f btn primary find-mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Konuş</span></button>' +
+          '<button class="f chip find-lang" data-lang="tr">Türkçe</button>' +
+          '<button class="f chip find-lang" data-lang="en">English</button>' +
+          '<input id="find-q" class="f" type="search" placeholder="Kanal, film ya da dizi adı" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">' +
+        '</div>' +
+        '<p id="find-status" class="find-status"></p>' +
+        '<div id="find-altbox"></div>' +
+        '<div id="find-res"></div>';
+      $('#find-q').addEventListener('keydown', function (e) {
+        if (e.keyCode === 13) { e.preventDefault(); findRun(this.value); }
+      });
+      $('#find').addEventListener('click', function (e) {
+        var b = e.target.closest('button');
+        if (!b) return;
+        if (b.id === 'find-mic') { findListen(); return; }
+        if (b.classList.contains('find-lang')) { F.lang = b.getAttribute('data-lang'); store.set('findLang', F.lang); findLangUi(); if (F.q) findRun(F.q); return; }
+        if (b.classList.contains('falt')) { $('#find-q').value = b.getAttribute('data-q'); findRun(b.getAttribute('data-q')); return; }
+        if (b.classList.contains('item')) findPick(b);
+      });
+      findLangUi();
+      findStatus(SR ? 'Konuş’a bas (ya da kumandadaki yeşil tuşa) ve kanal, film ya da dizi adını söyle.'
+        : noMicText(''));
+    }
+  }
+
+  function findLangUi() {
+    var b = document.querySelectorAll('.find-lang');
+    for (var i = 0; i < b.length; i++) b[i].classList.toggle('on', b[i].getAttribute('data-lang') === F.lang);
+  }
+  function findStatus(t) { var el = $('#find-status'); if (el) el.textContent = t || ''; }
+  function micUi(id, on) {
+    var b = $('#' + id); if (!b) return;
+    b.classList.toggle('rec', on);
+    b.querySelector('span').textContent = on ? 'Dinliyorum…' : 'Konuş';
+  }
+
+  function findListen() {
+    if (F.rec) { stopListen(); return; }
+    listen({
+      onState: function (on) { micUi('find-mic', on); if (on) findStatus('Dinliyorum (' + langName2() + ')… Söyleyince kendiliğinden arar.'); },
+      onText: function (t) { $('#find-q').value = t; },
+      onFinal: function (t, alts) { findRun(t, alts); },
+      onFail: function (code) { findStatus(noMicText(code)); if (code !== 'no-speech') focusEl($('#find-q')); }
+    });
+  }
+
+  function findRun(q, alts) {
+    stopListen();
+    q = String(q || '').trim();
+    F.q = q;
+    if (!q) { findStatus('Bir ad söyle ya da yaz.'); return; }
+    var job = ++F.busy;
+    findStatus('“' + q + '” aranıyor…');
+    $('#find-altbox').innerHTML = altChips(alts, 'falt');
+    $('#find-res').innerHTML = '<p class="empty">Aranıyor…</p>';
+    findSearch(q, alts).then(function (r) {
+      if (job !== F.busy) return;
+      F.res = r.res;
+      findRender(q, r.total, r.altN);
     });
   }
 
@@ -1005,6 +1087,14 @@
       return;
     }
     openDetail(sec, it, b);
+  }
+
+  // Ana ekranda yeşil tuş: Ara bölümünü aç ve hemen dinlemeye başla
+  function quickFind() {
+    if (D.open) closeDetail();
+    if (S.section !== 'find') openSection('find');
+    focusEl($('#find-mic'));
+    findListen();
   }
 
   /* ---------------- Vitrin: odaktaki film / dizinin görseli ve konusu ---------------- */
@@ -1417,8 +1507,8 @@
     }
     $('#osd-progress').classList.toggle('hidden', p.type === 'live');
     $('#osd-hint').textContent = p.type === 'live'
-      ? 'OK: kanal listesi     Yukarı / aşağı: kanal değiştir     Sol / sağ: ses, altyazı, çoklu ekran     Geri: listeler'
-      : 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: ses ve altyazı     Geri: listeler';
+      ? 'OK: kanal listesi     Yukarı / aşağı: kanal     Sol / sağ: menü     Yeşil: sesli ara     Sarı: görüntü     Geri: listeler'
+      : 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: menü     Yeşil: sesli ara     Sarı: görüntü     Geri: listeler';
     $('#osd-bar').style.width = '0';
     $('#osd-time').textContent = '';
     renderBar();
@@ -1467,7 +1557,9 @@
         setTimeout(function () { applyTrackPrefs(); autoSubs(); }, 1500);
       }
     });
+    video.addEventListener('resize', applyZoom);
     video.addEventListener('loadedmetadata', function () {
+      applyZoom();
       setTimeout(applyTrackPrefs, 500);
       if (!S.play || S.play.type === 'live') return;
       var saved = P.resumeAt || S.pos[posKey()];
@@ -1536,6 +1628,8 @@
     $('#pmenu').classList.add('hidden');
     $('#guide').classList.add('hidden');
     $('#player').classList.remove('guide-open');
+    $('#pfind').classList.add('hidden');
+    stopListen();
     P.layer = null; P.menu = null;
   }
 
@@ -1562,11 +1656,162 @@
     focusEl(target || $('#items .item') || $('.rail-item.active'));
   }
 
+  /* ---------------- Görüntü boyutu: orijinal, doldur, uzat, sinematik, yakınlaştır ---------------- */
+  var ZOOMS = [
+    { id: 'fit', label: 'Orijinal', sub: 'Görüntünün tamamı, oranı korunur' },
+    { id: 'fill', label: 'Ekranı doldur', sub: 'Siyah boşluklar gider, kenarlardan biraz kırpılır' },
+    { id: 'cinema', label: 'Sinematik (21:9)', sub: 'Geniş ekran filmlerdeki üst ve alt siyah bantları kaldırır' },
+    { id: 'stretch', label: 'Uzat', sub: 'Ekrana tam yayar, oran bozulabilir' },
+    { id: 'z115', label: 'Yakınlaştır %115', sub: '' },
+    { id: 'z130', label: 'Yakınlaştır %130', sub: '' },
+    { id: 'narrow', label: '4:3', sub: 'Eski, dar yayınlar için' }
+  ];
+  var ZOOM_CYCLE = ['fit', 'fill', 'cinema', 'stretch'];
+  function zoomLabel(id) { for (var i = 0; i < ZOOMS.length; i++) if (ZOOMS[i].id === id) return ZOOMS[i].label; return 'Orijinal'; }
+
+  function applyZoom() {
+    var m = S.pref.zoom || 'fit', v = video;
+    if (!v) return;
+    if (m === 'fit') { v.classList.remove('vz'); return; }
+    var W = window.innerWidth || 1920, H = window.innerHeight || 1080, sa = W / H;
+    var va = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
+    var w = 100, h = 100, fit = 'contain';
+    if (m === 'fill') { if (va > sa) w = va / sa * 100; else h = sa / va * 100; }
+    else if (m === 'cinema') { w = h = 133.3; }
+    else if (m === 'z115') { w = h = 115; }
+    else if (m === 'z130') { w = h = 130; }
+    else if (m === 'stretch') { fit = 'fill'; }
+    else if (m === 'narrow') { w = (4 / 3) / sa * 100; fit = 'fill'; }
+    v.style.setProperty('--vzw', w + '%');
+    v.style.setProperty('--vzh', h + '%');
+    v.style.setProperty('--vzl', (100 - w) / 2 + '%');
+    v.style.setProperty('--vzt', (100 - h) / 2 + '%');
+    v.style.setProperty('--vzf', fit);
+    v.classList.add('vz');
+  }
+  window.addEventListener('resize', applyZoom);
+
+  function setZoom(id, quiet) {
+    S.pref.zoom = id; savePref(); applyZoom();
+    if (!quiet) toast('Görüntü: ' + zoomLabel(id));
+  }
+  function cycleZoom() {
+    var i = ZOOM_CYCLE.indexOf(S.pref.zoom || 'fit');
+    setZoom(ZOOM_CYCLE[(i + 1) % ZOOM_CYCLE.length]);
+    showOsd();
+  }
+  function openZoomMenu() {
+    var cur = S.pref.zoom || 'fit';
+    openMenu('Görüntü boyutu', ZOOMS.map(function (z) {
+      return { label: z.label, sub: z.sub, active: z.id === cur, act: function () { setZoom(z.id, true); openZoomMenu(); } };
+    }), 'Sarı tuş: Orijinal, Doldur, Sinematik ve Uzat arasında hızlı geçiş.');
+  }
+
+  /* ---------------- Oynatıcıda sesli arama (yeşil tuş) ---------------- */
+  var PF = { res: null, busy: 0 };
+
+  function openPlayerFind(autoListen) {
+    if (M.on) { toast('Çoklu ekranda sesli arama yok. Önce çoklu ekrandan çık.'); return; }
+    hideLayers();
+    P.layer = 'find';
+    var el = $('#pfind');
+    if (!el.innerHTML) {
+      el.innerHTML =
+        '<h3>Sesli arama</h3>' +
+        '<div class="find-bar">' +
+          '<button id="pf-mic" class="f btn primary find-mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Konuş</span></button>' +
+          '<button class="f chip find-lang" data-lang="tr">Türkçe</button>' +
+          '<button class="f chip find-lang" data-lang="en">English</button>' +
+        '</div>' +
+        '<input id="pf-q" class="f" type="search" placeholder="Kanal, film ya da dizi adı" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">' +
+        '<p id="pf-status" class="find-status"></p>' +
+        '<div id="pf-altbox"></div>' +
+        '<div id="pf-res" data-zone="pfres"></div>' +
+        '<div class="g-hint">Yeşil: tekrar dinle     Geri: kapat</div>';
+      $('#pf-q').addEventListener('keydown', function (e) {
+        if (e.keyCode === 13) { e.preventDefault(); pfRun(this.value); }
+      });
+      el.addEventListener('click', function (e) {
+        var b = e.target.closest('button');
+        if (!b) return;
+        if (b.id === 'pf-mic') { pfListen(); return; }
+        if (b.classList.contains('find-lang')) { F.lang = b.getAttribute('data-lang'); store.set('findLang', F.lang); findLangUi(); var q = $('#pf-q').value; if (q) pfRun(q); return; }
+        if (b.classList.contains('pfalt')) { $('#pf-q').value = b.getAttribute('data-q'); pfRun(b.getAttribute('data-q')); return; }
+        if (b.classList.contains('pfitem')) pfPick(b);
+      });
+    }
+    el.classList.remove('hidden');
+    findLangUi();
+    showOsd();
+    focusEl($('#pf-mic'));
+    if (autoListen) pfListen(); else pfStatus(SR ? 'Konuş’a bas ve kanal, film ya da dizi adını söyle.' : noMicText(''));
+  }
+
+  function pfStatus(t) { var s = $('#pf-status'); if (s) s.textContent = t || ''; }
+
+  function pfListen() {
+    if (F.rec) { stopListen(); return; }
+    listen({
+      onState: function (on) { micUi('pf-mic', on); if (on) pfStatus('Dinliyorum (' + langName2() + ')…'); },
+      onText: function (t) { $('#pf-q').value = t; },
+      onFinal: function (t, alts) { pfRun(t, alts); },
+      onFail: function (code) { pfStatus(noMicText(code)); if (code !== 'no-speech') focusEl($('#pf-q')); }
+    });
+  }
+
+  function pfRun(q, alts) {
+    stopListen();
+    q = String(q || '').trim();
+    if (!q) { pfStatus('Bir ad söyle ya da yaz.'); return; }
+    var job = ++PF.busy;
+    pfStatus('“' + q + '” aranıyor…');
+    $('#pf-altbox').innerHTML = altChips(alts, 'pfalt');
+    $('#pf-res').innerHTML = '';
+    findSearch(q, alts).then(function (r) {
+      if (job !== PF.busy || P.layer !== 'find') return;
+      PF.res = r.res;
+      var html = '';
+      FIND_SECS.forEach(function (x) {
+        var arr = r.res[x[0]].slice(0, 15);
+        if (!arr.length) return;
+        html += '<div class="pf-h">' + x[1] + '</div>' + arr.map(function (it, i) {
+          var img = x[0] === 'series' ? it.cover : it.stream_icon;
+          return '<button class="f grow pfitem" data-sec="' + x[0] + '" data-i="' + i + '">' +
+            (img ? '<img class="pf-img" src="' + esc(img) + '" onerror="this.style.visibility=\'hidden\'">' : '<span class="pf-img"></span>') +
+            '<span class="name">' + esc(it.name) + '</span></button>';
+        }).join('');
+      });
+      $('#pf-res').innerHTML = html || '<p class="empty">“' + esc(q) + '” için sonuç yok.</p>';
+      pfStatus(r.total ? '“' + q + '” için ' + r.total + ' sonuç' : '');
+      var first = $('#pf-res .pfitem');
+      if (first) focusEl(first);
+    });
+  }
+
+  function pfPick(b) {
+    var sec = b.getAttribute('data-sec'), it = PF.res && PF.res[sec][+b.getAttribute('data-i')];
+    if (!it) return;
+    closeAll();
+    if (sec === 'live') {
+      loadList('live', '*').then(function (all) {
+        var i = all.indexOf(it);
+        if (i < 0) switchPlayback([it], 0, 'live'); else switchPlayback(all, i, 'live');
+      });
+    } else if (sec === 'vod') {
+      switchPlayback([it], 0, 'vod');
+    } else {
+      closePlayer();
+      var sp = openSection('series');
+      if (sp && sp.then) sp.then(function () { openSeries(it, null); }); else openSeries(it, null);
+    }
+  }
+
   /* ---------------- Alt çubuk ve katmanlar ---------------- */
   function renderBar() {
     var live = S.play && S.play.type === 'live';
     var btns = [['guide', live ? 'Kanal listesi' : 'Listeler'], ['audio', 'Ses'], ['subs', 'Altyazı']];
     if (live) btns.push(['multi', 'Çoklu ekran']); else btns.push(['avsync', 'Ses senkronu']);
+    btns.push(['zoom', 'Görüntü'], ['find', 'Sesli ara']);
     $('#pbar').innerHTML = btns.map(function (b) {
       return '<button class="f pbtn" data-act="' + b[0] + '">' + b[1] + '</button>';
     }).join('');
@@ -1575,7 +1820,7 @@
     var b = e.target.closest('.pbtn');
     if (!b || !S.play) return;
     var a = P.barBtn = b.getAttribute('data-act');
-    if (a === 'guide') openGuide(); else if (a === 'audio') openAudioMenu(); else if (a === 'multi') openMultiMenu(); else if (a === 'avsync') openAudioMenu(true); else openSubsMenu();
+    if (a === 'guide') openGuide(); else if (a === 'audio') openAudioMenu(); else if (a === 'multi') openMultiMenu(); else if (a === 'avsync') openAudioMenu(true); else if (a === 'zoom') openZoomMenu(); else if (a === 'find') openPlayerFind(true); else openSubsMenu();
   });
 
   function openBar() {
@@ -2702,7 +2947,7 @@
   /* ---------------- Tuşlar ---------------- */
   var KEY = {
     LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13,
-    RED: 403, CH_UP: 427, CH_DOWN: 428, PG_UP: 33, PG_DOWN: 34,
+    RED: 403, GREEN: 404, YELLOW: 405, CH_UP: 427, CH_DOWN: 428, PG_UP: 33, PG_DOWN: 34,
     PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, FF: 417, RW: 412, STOP: 413
   };
 
@@ -2753,9 +2998,12 @@
       if (isBackKey(k, false)) {
         e.preventDefault();
         if (P.layer === 'guide' && G.series && zoneOf(document.activeElement) === 'gitems') { guideCat(G.catId, G.series.idx); return; }
+        // Listeler açıkken ikinci Geri: yayını kapatıp ana ekrana dön
+        if (P.layer === 'guide') { closePlayer(); return; }
         closeLayer();
         return;
       }
+      if (k === KEY.GREEN) { e.preventDefault(); if (P.layer === 'find') pfListen(); else openPlayerFind(true); return; }
       if (P.layer === 'menu' && (k === KEY.LEFT || k === KEY.RIGHT) && menuAdjust(k === KEY.LEFT ? -1 : 1)) { e.preventDefault(); return; }
       if (P.layer === 'guide' && (k === KEY.RED || k === 70)) { e.preventDefault(); guideToggleFav(); return; }
       if (isPageKey(k)) {
@@ -2778,6 +3026,8 @@
       case KEY.PLAY: if (video.paused) togglePause(); break;
       case KEY.PAUSE: if (!video.paused) togglePause(); break;
       case KEY.STOP: closePlayer(); break;
+      case KEY.GREEN: openPlayerFind(true); break;
+      case KEY.YELLOW: cycleZoom(); break;
       case KEY.UP: case KEY.DOWN:
         if (type === 'live') zap(k === KEY.UP ? -1 : 1); else openBar(); break;
       case KEY.CH_UP: case KEY.PG_UP: if (type === 'live') zap(1); else showOsd(); break;
@@ -2808,6 +3058,7 @@
       return;
     }
     if (k === KEY.RED || (k === 70 && !inInput)) { e.preventDefault(); toggleFav(); return; }
+    if (k === KEY.GREEN && currentScreen() === 'main') { e.preventDefault(); quickFind(); return; }
     if (k === KEY.PG_DOWN || k === KEY.CH_DOWN || k === KEY.PG_UP || k === KEY.CH_UP) {
       e.preventDefault();
       for (var n = 0; n < 8; n++) move(k === KEY.PG_DOWN || k === KEY.CH_DOWN ? 'down' : 'up');
@@ -2842,7 +3093,7 @@
   function registerTizenKeys() {
     try {
       if (!window.tizen || !tizen.tvinputdevice) return;
-      ['ChannelUp', 'ChannelDown', 'ColorF0Red', 'MediaPlayPause', 'MediaPlay', 'MediaPause',
+      ['ChannelUp', 'ChannelDown', 'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'MediaPlayPause', 'MediaPlay', 'MediaPause',
         'MediaFastForward', 'MediaRewind', 'MediaStop'].forEach(function (k) {
         try { tizen.tvinputdevice.registerKey(k); } catch (e) {}
       });

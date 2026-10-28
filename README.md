@@ -26,6 +26,14 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 - İzlerken Geri tuşu yayını kapatmaz, listeleri açar; yayından çıkmak için panelde "Ana menü"
 - CH + sonraki, CH − önceki kanal
 
+## Görüntü boyutu
+
+İzlerken alt çubukta **Görüntü** ya da kumandada **sarı tuş**: Orijinal, Ekranı doldur, Sinematik (21:9, geniş filmlerdeki siyah bantları kaldırır), Uzat, %115 / %130 yakınlaştırma ve 4:3. Seçim hatırlanır.
+
+## Geri tuşu
+
+Tam ekranda **Geri** listeleri açar (yayın küçük pencerede sürer); listeler açıkken ikinci **Geri** yayını kapatıp ana ekrana döner.
+
 ## Sesli arama
 
 Soldaki menüde en üstte **Ara** var. Kanal, film ve dizilerde birlikte arar.
@@ -33,6 +41,8 @@ Soldaki menüde en üstte **Ara** var. Kanal, film ve dizilerde birlikte arar.
 - **Konuş**'a bas ve adı söyle; **Türkçe / English** düğmesi hangi dilde konuşacağını seçer.
 - Türkçe söylediğin bir filmin İngilizce adıyla eklenmiş olması sorun değil (ör. "Yüzüklerin Efendisi" → "The Lord of the Rings"). Adlar Wikidata üzerinden iki dilde eşleştirilir.
 - Kanallarda "TRT bir", "A TV" gibi söyleyişler "TRT 1", "ATV" ile eşleşir.
+- Kumandadaki **yeşil tuş** her yerde sesli aramayı açar ve hemen dinlemeye başlar; izlerken basarsan yayın arkada sürer, sağda arama paneli açılır.
+- Tanıyıcı yanlış duyarsa da bulur: "kurtla wadisi" → Kurtlar Vadisi, "brekin bed" → Breaking Bad. Tanıyıcının diğer tahminleri "Bunu mu demek istedin" olarak gösterilir.
 - TV uygulamaya mikrofon vermezse ekranda söylenir; o zaman arama kutusuna gelip OK'e bas ve TV klavyesinin mikrofon simgesini kullan ya da yaz.
 
 ## İzlerken kumanda
