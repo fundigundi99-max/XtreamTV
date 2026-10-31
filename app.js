@@ -2,7 +2,7 @@
  * Eski TV tarayıcıları için ES5 ile yazıldı (Tizen 3+, webOS 3+). */
 (function () {
   'use strict';
-  var APP_VERSION = '1.8.0';
+  var APP_VERSION = '1.9.0';
 
   function $(s) { return document.querySelector(s); }
   function enc(s) { return encodeURIComponent(s); }
@@ -530,7 +530,11 @@
     var b = e.target.closest('.item');
     if (!b) return;
     var i = +b.getAttribute('data-i');
-    if (S.seriesView) { startPlayback(S.seriesView.eps, i, 'episode', { name: S.seriesView.series.name, info: S.seriesView.info }); return; }
+    if (S.seriesView) {
+      var sv = S.seriesView, flat = flattenEpisodes({ episodes: sv.all }), fi = flat.indexOf(sv.eps[i]);
+      startPlayback(flat, fi < 0 ? 0 : fi, 'episode', { name: sv.series.name, info: sv.info });
+      return;
+    }
     var it = S.list[i];
     if (S.section === 'live') startPlayback(S.list, i, 'live');
     else if (it._trend) { if (it._match) openDetail(S.section, it._match, b); else openTrendDetail(it, b); }
@@ -1495,6 +1499,7 @@
     clearSub();
     retries = 0;
     P.audioApplied = P.subsApplied = P.autoTried = P.started = false;
+    P.nextOff = false; nextUpHide();
     $('#spinner').classList.remove('hidden');
     $('#osd-title').textContent = (p.type === 'live' && it.num ? it.num + '   ' : '') + (it.name || it.title || '');
     if (p.type === 'live') $('#osd-sub').textContent = 'Canlı';
@@ -1508,7 +1513,9 @@
     $('#osd-progress').classList.toggle('hidden', p.type === 'live');
     $('#osd-hint').textContent = p.type === 'live'
       ? 'OK: kanal listesi     Yukarı / aşağı: kanal     Sol / sağ: menü     Yeşil: sesli ara     Sarı: görüntü     Geri: listeler'
-      : 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: menü     Yeşil: sesli ara     Sarı: görüntü     Geri: listeler';
+      : p.type === 'episode'
+        ? 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: menü (Sonraki bölüm, Bölümler)     Mavi: bölümler     Yeşil: sesli ara     Geri: listeler'
+        : 'OK: duraklat     Sol / sağ: 10 sn     Yukarı / aşağı: menü     Yeşil: sesli ara     Sarı: görüntü     Geri: listeler';
     $('#osd-bar').style.width = '0';
     $('#osd-time').textContent = '';
     renderBar();
@@ -1578,13 +1585,14 @@
       if (d && isFinite(d)) {
         $('#osd-bar').style.width = (video.currentTime / d * 100) + '%';
         $('#osd-time').textContent = dur(video.currentTime) + ' / ' + dur(d);
+        nextUpTick(d - video.currentTime);
       }
       savePos(false);
     });
     video.addEventListener('ended', function () {
       if (!S.play) return;
       delete S.pos[posKey()]; store.set('pos', S.pos);
-      if (S.play.type === 'episode' && S.play.idx < S.play.list.length - 1) { S.play.idx++; loadCurrent(); toast('Sonraki bölüm'); }
+      if (hasNextEp()) playNextEp();
       else closePlayer();
     });
   }
@@ -1639,6 +1647,7 @@
     stopVideo();
     clearSub();
     hideLayers();
+    nextUpHide();
     $('#spinner').classList.add('hidden');
     var p = S.play;
     S.play = null;
@@ -1649,11 +1658,86 @@
       while (S.rendered <= p.idx && S.rendered < S.list.length) renderMore();
       target = $('#items .item[data-i="' + p.idx + '"]') || target;
     }
-    if (p && p.type === 'episode' && S.seriesView && p.list === S.seriesView.eps) {
-      showSeason(S.seriesView.season);
-      target = $('#items .item[data-i="' + p.idx + '"]') || target;
+    if (p && p.type === 'episode' && S.seriesView) {
+      var lastEp = p.list[p.idx], ss = lastEp && String(lastEp._season);
+      showSeason(ss && S.seriesView.all[ss] ? ss : S.seriesView.season);
+      var ei = S.seriesView.eps.indexOf(lastEp);
+      target = (ei >= 0 && $('#items .item[data-i="' + ei + '"]')) || target;
     }
     focusEl(target || $('#items .item') || $('.rail-item.active'));
+  }
+
+  /* ---------------- Diziler: sonraki bölüm ve bölüm seçici ---------------- */
+  function hasNextEp() { return !!(S.play && S.play.type === 'episode' && S.play.idx < S.play.list.length - 1); }
+  function epShort(ep) {
+    var s = ep._season != null ? ep._season : ep.season;
+    return (s ? s + '. sezon ' : '') + (ep.episode_num ? ep.episode_num + '. bölüm' : '');
+  }
+  function playNextEp() {
+    if (!hasNextEp()) { toast('Bu dizinin son bölümü.'); return; }
+    savePos(true);
+    S.play.idx++;
+    hideLayers();
+    loadCurrent();
+    toast('Sonraki bölüm: ' + epShort(S.play.list[S.play.idx]));
+  }
+
+  // Bölüm bitmeye yakın (son 45 sn) sağ altta "Sonraki bölüm" kartı
+  function nextUpTick(left) {
+    var show = hasNextEp() && !P.nextOff && left > 0 && left <= 45 && !M.on;
+    if (!show) { nextUpHide(); return; }
+    var el = $('#nextup'), nx = S.play.list[S.play.idx + 1];
+    if (el.classList.contains('hidden')) {
+      el.innerHTML = '<div class="nu-k">Sonraki bölüm</div><div class="nu-t">' + esc(epShort(nx) + (nx.title ? '   ' + nx.title : '')) + '</div>' +
+        '<div class="nu-c"></div><div class="nu-h">OK: şimdi geç     Geri: kapat</div>';
+      el.classList.remove('hidden');
+    }
+    el.querySelector('.nu-c').textContent = Math.ceil(left) + ' sn içinde başlıyor';
+  }
+  function nextUpHide() { var el = $('#nextup'); if (el) el.classList.add('hidden'); }
+  function nextUpVisible() { var el = $('#nextup'); return el && !el.classList.contains('hidden'); }
+
+  function openEpisodesMenu(season) {
+    var p = S.play;
+    if (!p || p.type !== 'episode') return;
+    var list = p.list, cur = list[p.idx], seasons = [];
+    list.forEach(function (ep) { var s = String(ep._season != null ? ep._season : ep.season || ''); if (seasons.indexOf(s) < 0) seasons.push(s); });
+    if (season == null) season = String(cur._season != null ? cur._season : cur.season || '');
+    var si = Math.max(0, seasons.indexOf(season));
+    season = seasons[si];
+    var items = [];
+    if (seasons.length > 1) items.push({
+      label: function () { return season ? season + '. sezon' : 'Sezon'; },
+      sub: 'Sol / sağ: sezon değiştir',
+      adjust: function (d) { var n = Math.max(0, Math.min(seasons.length - 1, si + d)); if (n !== si) openEpisodesMenu(seasons[n]); },
+      act: noop
+    });
+    var focusIdx = null;
+    list.forEach(function (ep, i) {
+      if (String(ep._season != null ? ep._season : ep.season || '') !== season) return;
+      var d = ep.info && (ep.info.duration || (ep.info.duration_secs ? dur(ep.info.duration_secs) : ''));
+      var now = i === p.idx, half = S.pos['episode|' + ep.id];
+      if (now) focusIdx = items.length;
+      items.push({
+        label: (ep.episode_num ? ep.episode_num + '. bölüm' : 'Bölüm') + (ep.title ? '   ' + cleanEpTitle(ep.title, p.ctx) : ''),
+        sub: now ? 'Şu an izleniyor' : [d, half ? 'yarıda kaldı (' + dur(half) + ')' : ''].filter(Boolean).join('   '),
+        active: now,
+        act: function () {
+          if (i === p.idx) { closeAll(); return; }
+          savePos(true); p.idx = i; closeAll(); loadCurrent();
+        }
+      });
+    });
+    var title = (p.ctx && p.ctx.name ? p.ctx.name : 'Bölümler');
+    // Sezon değişince odak sezon satırında kalsın
+    var fi = P.menu && P.menu.title === title && P.layer === 'menu' && seasons.length > 1 ? 0 : focusIdx;
+    openMenu(title, items, hasNextEp() ? 'Sonraki bölüm: ' + epShort(list[p.idx + 1]) : 'Bu dizinin son bölümündesin.', fi);
+  }
+  // "Dizi Adı - S01E02 - Bölüm adı" gibi başlıklardan dizi adını ayıkla
+  function cleanEpTitle(t, ctx) {
+    var x = String(t || '');
+    if (ctx && ctx.name && x.toLowerCase().indexOf(String(ctx.name).toLowerCase()) === 0) x = x.slice(String(ctx.name).length);
+    return x.replace(/^[\s\-–:|]+/, '') || String(t);
   }
 
   /* ---------------- Görüntü boyutu: orijinal, doldur, uzat, sinematik, yakınlaştır ---------------- */
@@ -1810,6 +1894,10 @@
   function renderBar() {
     var live = S.play && S.play.type === 'live';
     var btns = [['guide', live ? 'Kanal listesi' : 'Listeler'], ['audio', 'Ses'], ['subs', 'Altyazı']];
+    if (S.play && S.play.type === 'episode') {
+      btns.unshift(['eps', 'Bölümler']);
+      if (hasNextEp()) btns.unshift(['next', 'Sonraki bölüm ▶']);
+    }
     if (live) btns.push(['multi', 'Çoklu ekran']); else btns.push(['avsync', 'Ses senkronu']);
     btns.push(['zoom', 'Görüntü'], ['find', 'Sesli ara']);
     $('#pbar').innerHTML = btns.map(function (b) {
@@ -1820,7 +1908,7 @@
     var b = e.target.closest('.pbtn');
     if (!b || !S.play) return;
     var a = P.barBtn = b.getAttribute('data-act');
-    if (a === 'guide') openGuide(); else if (a === 'audio') openAudioMenu(); else if (a === 'multi') openMultiMenu(); else if (a === 'avsync') openAudioMenu(true); else if (a === 'zoom') openZoomMenu(); else if (a === 'find') openPlayerFind(true); else openSubsMenu();
+    if (a === 'guide') openGuide(); else if (a === 'audio') openAudioMenu(); else if (a === 'multi') openMultiMenu(); else if (a === 'avsync') openAudioMenu(true); else if (a === 'zoom') openZoomMenu(); else if (a === 'next') playNextEp(); else if (a === 'eps') openEpisodesMenu(); else if (a === 'find') openPlayerFind(true); else openSubsMenu();
   });
 
   function openBar() {
@@ -2947,7 +3035,7 @@
   /* ---------------- Tuşlar ---------------- */
   var KEY = {
     LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13,
-    RED: 403, GREEN: 404, YELLOW: 405, CH_UP: 427, CH_DOWN: 428, PG_UP: 33, PG_DOWN: 34,
+    RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406, CH_UP: 427, CH_DOWN: 428, PG_UP: 33, PG_DOWN: 34,
     PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, FF: 417, RW: 412, STOP: 413
   };
 
@@ -3017,6 +3105,11 @@
     }
 
     if (M.on) { multiKey(e, k); return; }
+    // Sonraki bölüm kartı açıkken: OK geçer, Geri kartı kapatır
+    if (nextUpVisible()) {
+      if (k === KEY.ENTER) { e.preventDefault(); playNextEp(); return; }
+      if (isBackKey(k, false)) { e.preventDefault(); P.nextOff = true; nextUpHide(); return; }
+    }
     // Geri: yayın kapanmaz, küçük pencerede devam eder ve listeler açılır
     if (isBackKey(k, false)) { e.preventDefault(); openGuide(); return; }
     e.preventDefault();
@@ -3028,6 +3121,8 @@
       case KEY.STOP: closePlayer(); break;
       case KEY.GREEN: openPlayerFind(true); break;
       case KEY.YELLOW: cycleZoom(); break;
+      case KEY.BLUE: if (type === 'episode') openEpisodesMenu(); else showOsd(); break;
+      case KEY.FF: seek(30); break;
       case KEY.UP: case KEY.DOWN:
         if (type === 'live') zap(k === KEY.UP ? -1 : 1); else openBar(); break;
       case KEY.CH_UP: case KEY.PG_UP: if (type === 'live') zap(1); else showOsd(); break;
@@ -3035,7 +3130,6 @@
       case KEY.LEFT: case KEY.RIGHT:
         if (type === 'live') openBar(); else seek(k === KEY.LEFT ? -10 : 10); break;
       case KEY.RW: seek(-30); break;
-      case KEY.FF: seek(30); break;
       default: showOsd();
     }
   }
@@ -3093,7 +3187,7 @@
   function registerTizenKeys() {
     try {
       if (!window.tizen || !tizen.tvinputdevice) return;
-      ['ChannelUp', 'ChannelDown', 'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'MediaPlayPause', 'MediaPlay', 'MediaPause',
+      ['ChannelUp', 'ChannelDown', 'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue', 'MediaPlayPause', 'MediaPlay', 'MediaPause',
         'MediaFastForward', 'MediaRewind', 'MediaStop'].forEach(function (k) {
         try { tizen.tvinputdevice.registerKey(k); } catch (e) {}
       });

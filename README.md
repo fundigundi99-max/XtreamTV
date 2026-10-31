@@ -26,6 +26,11 @@ Xtream Codes API ile çalışan, TV kumandasıyla kullanılmak üzere tasarlanm�
 - İzlerken Geri tuşu yayını kapatmaz, listeleri açar; yayından çıkmak için panelde "Ana menü"
 - CH + sonraki, CH − önceki kanal
 
+## Dizi izlerken
+
+- Bölümün son 45 saniyesinde sağ altta **Sonraki bölüm** kartı çıkar: OK hemen geçer, Geri kartı kapatır; hiçbir şeye basmazsan bölüm bitince sonraki kendiliğinden başlar (sezon sonunda bir sonraki sezona geçer).
+- Alt çubukta **Sonraki bölüm ▶** ve **Bölümler** düğmeleri var. **Mavi tuş** da bölüm listesini açar: sol / sağ ile sezon değiştir, istediğin bölüme OK.
+
 ## Görüntü boyutu
 
 İzlerken alt çubukta **Görüntü** ya da kumandada **sarı tuş**: Orijinal, Ekranı doldur, Sinematik (21:9, geniş filmlerdeki siyah bantları kaldırır), Uzat, %115 / %130 yakınlaştırma ve 4:3. Seçim hatırlanır.

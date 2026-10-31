@@ -570,3 +570,15 @@ input { border-radius: 0.6rem; }
 #pf-res { flex: 1; min-height: 0; overflow-y: auto; position: relative; }
 .pf-h { font-size: 1rem; font-weight: 700; color: var(--muted); margin: 0.8rem 0 0.3rem 0.8rem; }
 .pf-img { width: 3.2rem; height: 2.1rem; object-fit: contain; flex-shrink: 0; margin-right: 0.8rem; }
+
+/* ---------- Oynatıcı: sonraki bölüm kartı ---------- */
+#nextup {
+  position: absolute; right: 3.5rem; bottom: 9rem; width: 30rem;
+  padding: 1.2rem 1.4rem; border-radius: 0.6rem;
+  background: rgba(12, 22, 36, 0.95); border: 0.15rem solid var(--focus);
+}
+#nextup .nu-k { font-size: 1rem; font-weight: 700; color: var(--focus); text-transform: uppercase; letter-spacing: 0.04em; }
+#nextup .nu-t { font-size: 1.35rem; font-weight: 700; margin-top: 0.35rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#nextup .nu-c { font-size: 1.05rem; color: #DDE5EF; margin-top: 0.4rem; }
+#nextup .nu-h { font-size: 0.9rem; color: var(--muted); margin-top: 0.5rem; white-space: pre; }
+#player.guide-open #nextup, #player.multi #nextup { display: none; }
